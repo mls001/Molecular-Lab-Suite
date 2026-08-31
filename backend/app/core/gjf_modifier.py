@@ -94,7 +94,7 @@ def write_gjf_from_coords(output_path: str, mem: str, nprocshared: str, keyword:
                           charge: str, mult: str, atomic_numbers: list, coordinates: list,
                           title: str = "Generated from log"):
     """从坐标写入 GJF 文件"""
-    from app.core.constants import ATOMIC_NUMBER_TO_SYMBOL
+    from backend.app.core.constants import ATOMIC_NUMBER_TO_SYMBOL
     with open(output_path, 'w', encoding='utf-8') as f:
         f.write(f"%chk={os.path.basename(output_path).replace('.gjf', '.chk')}\n")
         f.write(f"%mem={mem}\n")

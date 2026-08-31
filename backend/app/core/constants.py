@@ -8,6 +8,7 @@ PRESET_RESOURCES = {
     "hachimi单并行": {"nproc": "10", "mem": "40GB"},
     "hachimi四并行": {"nproc": "4", "mem": "10GB"},
     "Tomori八队列": {"nproc": "12", "mem": "12GB"},
-    "students/zstoffice": {"nproc": "8", "mem": "20GB"},
+    "students": {"nproc": "8", "mem": "20GB"},
+    "zstoffice": {"nproc": "8", "mem": "20GB"},
     "zst106": {"nproc": "24", "mem": "180GB"}
 }
