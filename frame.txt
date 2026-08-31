@@ -1,0 +1,77 @@
+M:\Multi-scale Luminescence Simulator\
+│
+├── backend/                                # Python 后端 (FastAPI)
+│   │
+│   ├── app/
+│   │   ├── __init__.py
+│   │   │
+│   │   ├── main.py                         # FastAPI 入口，注册路由
+│   │   │
+│   │   ├── core/                           # 核心业务逻辑（从原 Tkinter 迁移）
+│   │   │   ├── __init__.py
+│   │   │   ├── constants.py                # ATOMIC_NUMBER_TO_SYMBOL, PRESET_RESOURCES
+│   │   │   ├── gjf_modifier.py             # modify_gjf_content, write_gjf_from_coords
+│   │   │   ├── log_parser.py               # parse_orbital_energies, parse_td, parse_soc, extract_scan
+│   │   │   └── mm_optimizer.py             # run_mol_optimize_stream（生成器版）
+│   │   │
+│   │   ├── routers/                        # API 路由
+│   │   │   ├── __init__.py
+│   │   │   ├── gjf.py                      # POST /api/gjf/modify
+│   │   │   ├── parse.py                    # POST /api/parse/orbital, /td, /soc
+│   │   │   ├── optimize.py                 # POST /api/optimize/run
+│   │   │   └── websocket.py                # WS /ws/optimize（实时推送）
+│   │   │
+│   │   ├── models/                         # Pydantic 数据模型
+│   │   │   ├── __init__.py
+│   │   │   └── schemas.py                  # OptimizeRequest, ParseRequest 等
+│   │   │
+│   │   └── utils/                          # 工具函数
+│   │       ├── __init__.py
+│   │       └── file_utils.py               # 临时目录管理、路径处理
+│   │
+│   ├── requirements.txt                    # Python 依赖
+│   └── start.py                            # 后端启动脚本（uvicorn）
+│
+├── frontend/                               # Vue 3 前端
+│   │
+│   ├── dist/                               # npm run build 生成（生产静态文件）
+│   │   ├── index.html
+│   │   └── assets/
+│   │
+│   ├── src/
+│   │   ├── main.js                         # Vue 入口
+│   │   ├── App.vue                         # 根组件（导航栏 + 路由出口）
+│   │   ├── router.js                       # Vue Router 配置
+│   │   │
+│   │   ├── views/                          # 页面视图
+│   │   │   ├── Home.vue                    # 首页（功能卡片）
+│   │   │   ├── OptimizeView.vue            # 分子力场优化（含 3D 预览）
+│   │   │   ├── GjfModifyView.vue           # 修改 GJF 参数
+│   │   │   ├── LogToGjfView.vue            # LOG → GJF
+│   │   │   ├── ScanExtractView.vue         # 提取扫描构象
+│   │   │   ├── OrbitalView.vue             # 轨道能量
+│   │   │   ├── TdView.vue                  # TD 信息
+│   │   │   ├── SocView.vue                 # SOC 数据
+│   │   │   └── ReorgView.vue               # 重组能计算
+│   │   │
+│   │   └── components/                     # 可复用组件
+│   │       ├── Mol3DViewer.vue             # 3D 分子预览（封装 3Dmol.js）
+│   │       └── FileUploader.vue            # 文件上传/选择
+│   │
+│   ├── index.html                          # HTML 模板
+│   ├── package.json                        # 前端依赖
+│   └── vite.config.js                      # Vite 构建配置
+│
+├── electron/                               # Electron 桌面包装
+│   │
+│   ├── main.js                             # 主进程（启动后端 + 创建窗口）
+│   ├── preload.js                          # 预加载脚本（安全桥接）
+│   └── package.json                        # Electron 依赖（可选）
+│
+├── build/                                  # 打包输出目录（electron-builder 生成）
+│   ├── icon.ico                            # 应用图标
+│   └── MLS 分子工具 Setup.exe              # 最终安装包
+│
+├── package.json                            # 根目录 package.json（管理整体构建）
+├── .gitignore                              # Git 忽略文件
+└── README.md                               # 项目说明文档
