@@ -8,3 +8,4 @@ pandas
 openpyxl
 paramiko
 python-dotenv
+cryptography>=3.4.8

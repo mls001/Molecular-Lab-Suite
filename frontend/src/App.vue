@@ -12,10 +12,15 @@
         <router-link to="/td" style="color:#aaa;text-decoration:none;font-size:14px;">TD信息</router-link>
         <router-link to="/soc" style="color:#aaa;text-decoration:none;font-size:14px;">SOC数据</router-link>
         <router-link to="/reorg" style="color:#aaa;text-decoration:none;font-size:14px;">重组能</router-link>
+        <router-link to="/reorg-extract" style="color:#aaa;text-decoration:none;font-size:14px;">重组能提取</router-link>
       </nav>
     </header>
     <main style="flex:1;overflow:hidden;padding:20px;">
-      <router-view />
+      <router-view v-slot="{ Component }">
+        <keep-alive>
+          <component :is="Component" />
+        </keep-alive>
+      </router-view>
     </main>
   </div>
 </template>
@@ -104,7 +109,7 @@ body {
   box-sizing: border-box;
   transition: background 0.2s, opacity 0.2s;
   padding: 0 14px;
-  height: 28px; /* 默认高度，可被 h-* 覆盖 */
+  height: 28px;
 }
 .btn:disabled {
   opacity: 0.6;

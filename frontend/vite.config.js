@@ -21,6 +21,12 @@ const frontendPort = config.frontend?.port || 1145
 
 export default defineConfig({
   plugins: [vue()],
+  // ===== 新增：路径别名配置 =====
+  resolve: {
+    alias: {
+      '@': path.resolve(__dirname, './src')  // @ 指向 src 目录
+    }
+  },
   base: './',
   server: {
     port: frontendPort,
@@ -39,7 +45,6 @@ export default defineConfig({
     outDir: 'dist',
     assetsDir: 'assets'
   },
-  // 注入全局常量，供前端代码使用
   define: {
     __BACKEND_HOST__: JSON.stringify(backendHost),
     __BACKEND_PORT__: JSON.stringify(backendPort),

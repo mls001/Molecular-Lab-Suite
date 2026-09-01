@@ -135,7 +135,7 @@
               {{ saving ? '保存中...' : '保存' }}
             </button>
             <button class="btn btn-warning h-lg" @click="reloadCurrentFile" :disabled="!currentFile">
-              🔄 重新加载
+              重新加载
             </button>
           </div>
         </div>
@@ -157,10 +157,12 @@
 <script>
 import LogViewer from '../components/LogViewer.vue'
 import CustomSelect from '../components/CustomSelect.vue'
+import scrollCache from '@/mixins/scrollCache'
 
 export default {
   name: 'GjfModifyView',
   components: { LogViewer, CustomSelect },
+  mixins: [scrollCache],
   data() {
     return {
       inputFolder: '',
@@ -332,7 +334,7 @@ export default {
     reloadCurrentFile() {
       if (this.currentFile) {
         this.loadFileContent(this.currentFile)
-        this.addLog(`🔄 重新加载 ${this.currentFile}`, '#87d2ff')
+        this.addLog(`重新加载 ${this.currentFile}`, '#87d2ff')
       }
     },
 
@@ -435,7 +437,7 @@ export default {
         this.addLog('⚠️ 请填写计算模式、泛函和基组', '#ffa500')
         return
       }
-      this.addLog('⏳ 应用参数并保存...', '#87d2ff')
+      this.addLog('应用参数并保存...', '#87d2ff')
       try {
         const applyResp = await fetch(`http://${__BACKEND_HOST__}:${__BACKEND_PORT__}/api/gjf/apply-params`, {
           method: 'POST',

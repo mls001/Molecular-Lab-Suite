@@ -1,6 +1,6 @@
 <template>
   <div class="flex-col h-full" style="gap:8px;overflow:hidden;">
-    <h2 style="margin:0;">⚡ 轨道能量解析</h2>
+    <h2 style="margin:0;">轨道能量解析</h2>
     <p style="color:#666;margin:0;font-size:14px;">选择包含 Gaussian .log 文件的文件夹，自动解析并展示轨道能量</p>
 
     <!-- 控制栏 -->
@@ -9,15 +9,15 @@
       <span v-if="folder" style="color:#1890ff;font-size:13px;">{{ folder }}</span>
       <span v-else style="color:#999;font-size:13px;">未选择</span>
       <button class="btn btn-success" style="height:32px;" @click="startParse" :disabled="running || !folder">
-        {{ running ? '解析中...' : '🔄 重新解析' }}
+        {{ running ? '解析中...' : '重新解析' }}
       </button>
-      <button v-if="allData.length" class="btn btn-warning" style="height:32px;" @click="exportCSV">📥 导出 CSV</button>
-      <button v-if="allData.length" class="btn" style="height:32px;background:#722ed1;color:white;" @click="exportExcel">📊 导出 Excel</button>
+      <button v-if="allData.length" class="btn btn-warning" style="height:32px;" @click="exportCSV">导出 CSV</button>
+      <button v-if="allData.length" class="btn" style="height:32px;background:#722ed1;color:white;" @click="exportExcel">导出 Excel</button>
     </div>
 
     <!-- 能隙计算 -->
     <div class="flex-center flex-shrink-0" style="gap:10px;background:#f9f9f9;padding:6px 14px;border-radius:6px;flex-wrap:wrap;">
-      <span class="label">🔬 能隙计算</span>
+      <span class="label">能隙计算</span>
       <span style="font-size:13px;">轨道 A</span>
       <input v-model.number="gapIndexA" type="number" min="1" class="control" style="height:32px; width:96px;" placeholder="序号" />
       <span style="font-size:13px;">轨道 B</span>
@@ -101,10 +101,12 @@
 
 <script>
 import LogViewer from '../components/LogViewer.vue'
+import scrollCache from '@/mixins/scrollCache'
 
 export default {
   name: 'OrbitalView',
   components: { LogViewer },
+  mixins: [scrollCache],
   data() {
     return {
       folder: '',
@@ -197,10 +199,13 @@ export default {
                 }, 100)
               })
               this.addLog(`共解析 ${this.allData.length} 个文件`, '#87d2ff')
+                this.$nextTick(() => {
+                  this.triggerRestore()
+                })
             }
             break
           case 'done':
-            this.addLog(`🎉 ${data.message}`, '#00ff00')
+            this.addLog(`${data.message}`, '#00ff00')
             this.running = false
             this.ws.close()
             break

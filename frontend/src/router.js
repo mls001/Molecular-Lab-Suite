@@ -8,6 +8,7 @@ import OrbitalView from './views/OrbitalView.vue'
 import TdView from './views/TdView.vue'
 import SocView from './views/SocView.vue'
 import ReorgView from './views/ReorgView.vue'
+import ReorgExtractView from './views/ReorgExtractView.vue'
 
 const routes = [
   { path: '/', component: Home },
@@ -19,6 +20,7 @@ const routes = [
   { path: '/td', component: TdView },
   { path: '/soc', component: SocView },
   { path: '/reorg', component: ReorgView },
+  { path: '/reorg-extract', component: ReorgExtractView },
 ]
 
 const router = createRouter({

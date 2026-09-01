@@ -5,6 +5,11 @@ from config import CONFIG
 import app.routers.websocket
 import app.routers.gjf
 import app.routers.orbital
+import cryptography
+import cryptography.fernet
+import cryptography.hazmat
+import cryptography.hazmat.primitives
+import cryptography.hazmat.primitives.kdf.pbkdf2
 
 
 def is_frozen():

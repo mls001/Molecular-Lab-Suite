@@ -1,6 +1,8 @@
 {
   "name": "mls-desktop",
   "version": "26.9.1",
+  "description": "Molecular Lab Suite - M.L.S.",
+  "author": "mls.",
   "main": "electron/main.js",
   "scripts": {
     "dev": "concurrently \"npm run dev:backend\" \"npm run dev:frontend\"",
@@ -29,7 +31,9 @@
       {
         "from": "frontend/dist",
         "to": "frontend/dist",
-        "filter": ["**/*"]
+        "filter": [
+          "**/*"
+        ]
       },
       {
         "from": "backend/dist/mls-backend.exe",
@@ -48,5 +52,9 @@
       "oneClick": false,
       "allowToChangeInstallationDirectory": true
     }
+  },
+  "dependencies": {
+    "echarts": "^6.1.0",
+    "xlsx": "^0.18.5"
   }
 }
