@@ -61,7 +61,7 @@ class ApplyParamsRequest(BaseModel):
     keyword: str
     charge: str
     mult: str
-
+    chk_name: str = None   # 新增可选字段
 
 @router.post("/apply-params")
 async def apply_params(req: ApplyParamsRequest):
@@ -70,10 +70,10 @@ async def apply_params(req: ApplyParamsRequest):
         with os.fdopen(fd, 'w', encoding='utf-8') as f:
             f.write(req.content)
         new_lines = modify_gjf_content(
-            temp_path, req.mem, req.nproc, req.keyword, req.charge, req.mult
+            temp_path, req.mem, req.nproc, req.keyword, req.charge, req.mult,
+            chk_name=req.chk_name   # 传递chk名
         )
-        with open(temp_path, 'r', encoding='utf-8') as f:
-            new_content = f.read()
+        new_content = ''.join(new_lines)
         return {"content": new_content}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

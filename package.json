@@ -55,6 +55,7 @@
   },
   "dependencies": {
     "echarts": "^6.1.0",
+    "electron-store": "^11.0.2",
     "xlsx": "^0.18.5"
   }
 }

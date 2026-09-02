@@ -32,7 +32,8 @@ app.include_router(reorg_extract.router, prefix="/ws", tags=["ReorgExtract"])
 app.include_router(remote.router)
 app.include_router(preset.router)
 app.include_router(terminal.router, prefix="/ws", tags=["终端"])
-
+app.include_router(remote.router, prefix="/api/remote")
+app.include_router(remote.router, prefix="/api/remote/cache")
 
 @app.get("/api/health")
 async def health():

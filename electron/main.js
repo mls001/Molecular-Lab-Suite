@@ -5,11 +5,18 @@ const fs = require('fs');
 
 let mainWindow;
 let backendProcess = null;
-let isQuitting = false; // 防止重复退出
+let isQuitting = false;
 
 // ===== 读取配置文件 =====
 function loadConfig() {
-  const configPath = path.join(__dirname, '..', 'config.json');
+  const isDev = process.env.NODE_ENV === 'development';
+  let configPath;
+  if (isDev) {
+    configPath = path.join(__dirname, '..', 'config.json');
+  } else {
+    // 打包后从 resources 目录读取
+    configPath = path.join(process.resourcesPath, 'config.json');
+  }
   if (fs.existsSync(configPath)) {
     try {
       const content = fs.readFileSync(configPath, 'utf-8');
@@ -18,13 +25,28 @@ function loadConfig() {
       console.warn('读取 config.json 失败，使用默认配置', e);
     }
   }
-  return { backend: { host: '127.0.0.1', port: 8000 }, frontend: { port: 1145 } };
+  // 默认端口改为 8002（与 fallback 一致）
+  return { backend: { host: '127.0.0.1', port: 8002 }, frontend: { port: 1145 } };
 }
 
 const CONFIG = loadConfig();
-const BACKEND_HOST = CONFIG.backend?.host || '127.0.0.1';
-const BACKEND_PORT = CONFIG.backend?.port || 8000;
-const FRONTEND_PORT = CONFIG.frontend?.port || 1145;
+const BACKEND_HOST = CONFIG.backend?.host ?? '127.0.0.1';
+const BACKEND_PORT = CONFIG.backend?.port ?? 8002;   // 直接使用 CONFIG 中的值，若为 undefined 则用 8002
+const FRONTEND_PORT = CONFIG.frontend?.port ?? 1145;
+
+// ===== 缓存目录（应用根目录下的 cache 文件夹） =====
+function getCacheDir() {
+  const isDev = process.env.NODE_ENV === 'development';
+  if (isDev) {
+    // 开发环境：项目根目录下的 cache
+    return path.join(__dirname, '..', 'cache');
+  } else {
+    // 生产环境：应用安装根目录（.exe 所在目录）下的 cache
+    const appRoot = path.dirname(process.resourcesPath);
+    return path.join(appRoot, 'cache');
+  }
+}
+const cacheDir = getCacheDir();
 
 // ===== 获取后端可执行文件路径 =====
 function getBackendPath() {
@@ -56,10 +78,8 @@ function getBackendPath() {
 // ===== 强制杀死所有 mls-backend.exe 进程（含子进程） =====
 function killAllBackendProcesses() {
   return new Promise((resolve) => {
-    // /f 强制 /t 终止进程树 /im 按映像名称
     exec('taskkill /f /t /im mls-backend.exe', (error, stdout, stderr) => {
       if (error) {
-        // 如果没有找到进程，taskkill 会返回错误，但我们忽略
         console.log('没有残留的 mls-backend.exe 进程或已清除');
       } else {
         console.log('已强制终止所有 mls-backend.exe 进程（含子进程）');
@@ -68,6 +88,19 @@ function killAllBackendProcesses() {
       resolve();
     });
   });
+}
+
+// ===== 清除缓存目录（同步删除，确保退出前完成） =====
+function clearCache() {
+  try {
+    if (fs.existsSync(cacheDir)) {
+      fs.rmSync(cacheDir, { recursive: true, force: true });
+      console.log('✅ 缓存目录已清除:', cacheDir);
+    }
+  } catch (err) {
+    // 不检查权限，仅打印警告，忽略错误
+    console.warn('清除缓存失败:', err.message);
+  }
 }
 
 // ===== 启动后端进程 =====
@@ -152,6 +185,10 @@ ipcMain.handle('select-directory', async (event, options = {}) => {
   return null;
 });
 
+ipcMain.handle('get-backend-url', () => {
+  return `http://${BACKEND_HOST}:${BACKEND_PORT}`;
+});
+
 // ===== 优雅退出 =====
 async function quitApp() {
   if (isQuitting) return;
@@ -162,6 +199,8 @@ async function quitApp() {
     backendProcess = null;
   }
   await killAllBackendProcesses();
+  // 清除缓存
+  clearCache();
   console.log('清理完成，退出应用');
   app.exit(0);
 }
@@ -190,5 +229,11 @@ process.on('exit', () => {
   }
   try {
     require('child_process').execSync('taskkill /f /t /im mls-backend.exe', { stdio: 'ignore' });
+  } catch (e) { /* ignore */ }
+  // 尝试清除缓存（同步）
+  try {
+    if (fs.existsSync(cacheDir)) {
+      fs.rmSync(cacheDir, { recursive: true, force: true });
+    }
   } catch (e) { /* ignore */ }
 });

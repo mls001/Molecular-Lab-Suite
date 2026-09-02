@@ -54,11 +54,26 @@ export default {
       selectedPreset: '',
       newPresetName: '',
       presetNames: [],
+      backendUrl: '' // 新增：动态获取的后端地址
     }
   },
   computed: {
     connectionPresetNames() {
       return this.presetNames.filter(name => name.startsWith('conn_'))
+    }
+  },
+  async mounted() {
+    // 获取后端地址（通过 preload 暴露的方法）
+    if (window.electronAPI && typeof window.electronAPI.getBackendUrl === 'function') {
+      try {
+        this.backendUrl = await window.electronAPI.getBackendUrl()
+      } catch (e) {
+        console.error('获取后端地址失败:', e)
+        this.backendUrl = 'http://127.0.0.1:8002' // 降级
+      }
+    } else {
+      // 开发环境 fallback（直接访问 localhost）
+      this.backendUrl = 'http://127.0.0.1:8002'
     }
   },
   watch: {
@@ -79,7 +94,7 @@ export default {
   methods: {
     async loadPresetList() {
       try {
-        const response = await fetch(`http://${__BACKEND_HOST__}:${__BACKEND_PORT__}/api/preset/list`)
+        const response = await fetch(`${this.backendUrl}/api/preset/list`)
         const data = await response.json()
         this.presetNames = data.names || []
       } catch (e) {
@@ -99,7 +114,7 @@ export default {
       }
       const fullName = `conn_${name}`
       try {
-        const response = await fetch(`http://${__BACKEND_HOST__}:${__BACKEND_PORT__}/api/preset/save`, {
+        const response = await fetch(`${this.backendUrl}/api/preset/save`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -128,7 +143,7 @@ export default {
     async onPresetChange() {
       if (!this.selectedPreset) return
       try {
-        const response = await fetch(`http://${__BACKEND_HOST__}:${__BACKEND_PORT__}/api/preset/load?name=${encodeURIComponent(this.selectedPreset)}`)
+        const response = await fetch(`${this.backendUrl}/api/preset/load?name=${encodeURIComponent(this.selectedPreset)}`)
         const data = await response.json()
         if (response.ok) {
           this.localHost = data.host || ''
@@ -148,7 +163,7 @@ export default {
       if (!this.selectedPreset) return
       if (!confirm(`确定删除预设 "${this.selectedPreset.replace(/^conn_/, '')}" 吗？`)) return
       try {
-        const response = await fetch(`http://${__BACKEND_HOST__}:${__BACKEND_PORT__}/api/preset/delete?name=${encodeURIComponent(this.selectedPreset)}`, {
+        const response = await fetch(`${this.backendUrl}/api/preset/delete?name=${encodeURIComponent(this.selectedPreset)}`, {
           method: 'DELETE'
         })
         const data = await response.json()

@@ -3,30 +3,25 @@ M:\Multi-scale Luminescence Simulator\
 ├── backend/                                # Python 后端 (FastAPI)
 │   │
 │   ├── app/
-│   │   ├── __init__.py
 │   │   │
 │   │   ├── main.py                         # FastAPI 入口，注册路由
 │   │   │
 │   │   ├── core/                           # 核心业务逻辑（从原 Tkinter 迁移）
-│   │   │   ├── __init__.py
 │   │   │   ├── constants.py                # ATOMIC_NUMBER_TO_SYMBOL, PRESET_RESOURCES
 │   │   │   ├── gjf_modifier.py             # modify_gjf_content, write_gjf_from_coords
 │   │   │   ├── log_parser.py               # parse_orbital_energies, parse_td, parse_soc, extract_scan
 │   │   │   └── mm_optimizer.py             # run_mol_optimize_stream（生成器版）
 │   │   │
 │   │   ├── routers/                        # API 路由
-│   │   │   ├── __init__.py
 │   │   │   ├── gjf.py                      # POST /api/gjf/modify
 │   │   │   ├── parse.py                    # POST /api/parse/orbital, /td, /soc
 │   │   │   ├── optimize.py                 # POST /api/optimize/run
 │   │   │   └── websocket.py                # WS /ws/optimize（实时推送）
 │   │   │
 │   │   ├── models/                         # Pydantic 数据模型
-│   │   │   ├── __init__.py
 │   │   │   └── schemas.py                  # OptimizeRequest, ParseRequest 等
 │   │   │
 │   │   └── utils/                          # 工具函数
-│   │       ├── __init__.py
 │   │       └── file_utils.py               # 临时目录管理、路径处理
 │   │
 │   ├── requirements.txt                    # Python 依赖
