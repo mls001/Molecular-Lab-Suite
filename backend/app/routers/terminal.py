@@ -14,7 +14,7 @@ async def terminal_websocket(websocket: WebSocket):
     channel = None
     read_thread = None
     loop = asyncio.get_event_loop()
-    closed = False  # 标记连接是否已关闭
+    closed = False
 
     try:
         data = await websocket.receive_json()
@@ -34,9 +34,9 @@ async def terminal_websocket(websocket: WebSocket):
         channel = ssh.invoke_shell(term='xterm-256color', width=120, height=40)
         channel.settimeout(0.0)
 
-        # 读取线程
+        # 读取线程（持续运行）
         def reader():
-            while channel and not channel.closed and not closed:
+            while not closed and channel and not channel.closed:
                 try:
                     if channel.recv_ready():
                         data = channel.recv(4096)
@@ -53,7 +53,9 @@ async def terminal_websocket(websocket: WebSocket):
                         time.sleep(0.02)
                 except Exception as e:
                     print(f"[TERMINAL] read error: {e}")
-                    break
+                    # 不要退出，继续循环
+                    time.sleep(0.1)
+            print("[TERMINAL] reader thread exited")
 
         read_thread = threading.Thread(target=reader, daemon=True)
         read_thread.start()
@@ -73,19 +75,23 @@ async def terminal_websocket(websocket: WebSocket):
 
         # 主循环：接收用户输入
         while True:
-            msg = await websocket.receive_json()
-            action = msg.get("action")
-            if action == "input":
-                data = msg.get("data", "")
-                if channel and not channel.closed:
-                    channel.send(data)
-            elif action == "resize":
-                cols = msg.get("cols", 120)
-                rows = msg.get("rows", 40)
-                if channel and not channel.closed:
-                    channel.resize_pty(width=cols, height=rows)
-            elif action == "close":
-                break
+            try:
+                msg = await asyncio.wait_for(websocket.receive_json(), timeout=0.5)
+                action = msg.get("action")
+                if action == "input":
+                    data = msg.get("data", "")
+                    if channel and not channel.closed:
+                        channel.send(data)
+                elif action == "resize":
+                    cols = msg.get("cols", 120)
+                    rows = msg.get("rows", 40)
+                    if channel and not channel.closed:
+                        channel.resize_pty(width=cols, height=rows)
+                elif action == "close":
+                    break
+            except asyncio.TimeoutError:
+                # 超时继续循环，保持活跃
+                continue
 
     except WebSocketDisconnect:
         print("[TERMINAL] client disconnected (normal)")
@@ -98,12 +104,11 @@ async def terminal_websocket(websocket: WebSocket):
         except:
             pass
     finally:
+        closed = True
         if channel and not channel.closed:
             channel.close()
-        # 只有在连接未关闭时才关闭 WebSocket
         if not closed:
             try:
                 await websocket.close()
-                closed = True
             except:
                 pass
