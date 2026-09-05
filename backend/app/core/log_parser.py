@@ -100,75 +100,270 @@ def parse_orbital_energies_advanced(log_path: str) -> dict:
     }
 
 
-def parse_log_last_structure(filename: str):
-    """从 LOG 文件提取最后的结构坐标"""
-    try:
-        with open(f"{filename}.log", 'r', encoding='utf-8', errors='ignore') as f:
-            lines = f.readlines()
-    except FileNotFoundError:
-        return None, None
-
-    atomic_numbers = []
-    coordinates = []
-    re_std = re.compile(r'^\s*Standard\s+orientation\s*:', re.IGNORECASE)
-    re_coord = re.compile(r'^\s*(\d+)\s+(\d+)\s+(\d+)\s+(-?\d+\.\d+)\s+(-?\d+\.\d+)\s+(-?\d+\.\d+)')
-    in_std = False
-    current_atomic = []
-    current_coords = []
-
-    for line in lines:
-        if re_std.search(line):
-            in_std = True
-            current_atomic = []
-            current_coords = []
+def _read_text(path: str) -> str:
+    """按多种编码尝试读取文本文件（Gaussian 输出可能是 GBK/UTF-8/带 BOM）"""
+    for enc in ('utf-8-sig', 'utf-8', 'gbk', 'latin-1'):
+        try:
+            with open(path, 'r', encoding=enc, errors='ignore') as f:
+                return f.read()
+        except (UnicodeDecodeError, LookupError):
             continue
-        if in_std:
-            if line.strip().startswith('---'):
-                if current_atomic:
-                    atomic_numbers = current_atomic
-                    coordinates = current_coords
-                    in_std = False
+    with open(path, 'r', encoding='utf-8', errors='ignore') as f:
+        return f.read()
+
+
+_LOG_ORIENT_RE = re.compile(r'^\s*(Standard|Input|Z-Matrix)\s+orientation\s*:', re.IGNORECASE)
+# 兼容定点与小/大数的 D/E 指数写法，例如 -0.123456D-05
+_LOG_NUM = r'[-+]?\d*\.?\d+(?:[DdEe][-+]?\d+)?'
+_LOG_COORD_RE = re.compile(
+    rf'^\s*\d+\s+(\d+)\s+\d+\s+({_LOG_NUM})\s+({_LOG_NUM})\s+({_LOG_NUM})'
+)
+_LOG_CHARGE_RE = re.compile(r'Charge\s*=\s*(-?\d+)\s+Multiplicity\s*=\s*(-?\d+)', re.IGNORECASE)
+_LOG_ROUTE_RE = re.compile(r'^\s*#')
+
+
+def _to_float(token: str) -> float:
+    return float(token.replace('D', 'E').replace('d', 'e'))
+
+
+def _parse_orientation_blocks(lines: list) -> list:
+    """扫描全部坐标段，返回 [{kind, line, atomic_numbers, coords}, ...]（按出现顺序）"""
+    blocks = []
+    i, n = 0, len(lines)
+    while i < n:
+        m = _LOG_ORIENT_RE.match(lines[i])
+        if not m:
+            i += 1
+            continue
+        kind = m.group(1).lower()
+        atomic_numbers, coords = [], []
+        j = i + 1
+        while j < n and j < i + 500:
+            cm = _LOG_COORD_RE.match(lines[j])
+            if cm:
+                atomic_numbers.append(int(cm.group(1)))
+                coords.append((_to_float(cm.group(2)), _to_float(cm.group(3)), _to_float(cm.group(4))))
+                j += 1
                 continue
-            m = re_coord.match(line)
-            if m:
-                an = int(m.group(2))
-                x = float(m.group(4))
-                y = float(m.group(5))
-                z = float(m.group(6))
-                current_atomic.append(an)
-                current_coords.append((x, y, z))
-
-    return atomic_numbers, coordinates
-
-
-def extract_scan_header_info(lines: list):
-    """提取扫描构象的头部信息"""
-    route_lines = []
-    title_lines = []
-    charge = 0
-    mult = 1
-    for line in lines:
-        if 'Charge =' in line and 'Multiplicity =' in line:
-            m = re.search(r'Charge\s*=\s*(-?\d+)\s+Multiplicity\s*=\s*(\d+)', line)
-            if m:
-                charge = int(m.group(1))
-                mult = int(m.group(2))
+            if atomic_numbers:      # 已读到坐标，遇到其它行即本段结束
                 break
-    if not route_lines:
+            j += 1                  # 跳过表头/分隔线
+        if atomic_numbers:
+            blocks.append({
+                'kind': kind,
+                'line': i,
+                'atomic_numbers': atomic_numbers,
+                'coords': coords,
+            })
+        i = j if j > i else i + 1
+    return blocks
+
+
+_BASIS_RE = re.compile(
+    r'^(sto-?\d+g?|3-21g|4-31g|6-31g|6-311g|6-31\+|6-311\+|cc-pv|aug-cc-pv|def2|lanl2dz|lanl2mb'
+    r'|sdd|shf|dz|dzp|tz|tzp|tzvp|qzv|qzvp|midix|minix|sv|svp|pcseg|aug-|may-|jul-|dkh)',
+    re.IGNORECASE,
+)
+_FUNCTIONAL_RE = re.compile(
+    r'^(hf|b3lyp|b3pw91|b3p86|b1lyp|mpw1pw91|mpw1k|pbe0|pbe1pbe|pbe|bp86|blyp|b97d|b97-d|tpss|tpssh'
+    r'|m06l|m06-2x|m062x|m06|m08hx|m05-2x|m052x|m05|wb97x|wb97xd|wb97x-d|cam-b3lyp|lc-wpbe|lc-blyp'
+    r'|apfd|apbe|mn15|mn12|svwn|olyp|vsxc|hse06|pbesol|mp2|mp4|ccsd|qcisd|b2plyp|b2gp-plyp|pw6b95'
+    r'|pwpb95|sogga11x|n12|revm06|revtpss|bmk)(\b|$)',
+    re.IGNORECASE,
+)
+
+
+def split_route(route: str) -> dict:
+    """把关键词行拆成 计算模式 / 泛函 / 基组，便于回填到修改 GJF 页面的参数栏。
+
+    支持两种常见写法：
+      "#p opt b3lyp/6-31g(d,p)"          -> functional=b3lyp, basis=6-31g(d,p)
+      "#p opt 6-31g(d,p) m062x"          -> functional=m062x, basis=6-31g(d,p)（基组在前）
+    未能识别时整体作为计算模式，回填后关键词行仍与原 LOG 一致。
+    """
+    result = {'mode': '', 'functional': '', 'basis': '', 'route': route or ''}
+    if not route:
+        return result
+    tokens = route.strip().split()
+    slash_idx = next((i for i, t in enumerate(tokens)
+                      if '/' in t and not t.startswith('%') and not t.startswith('(')), None)
+
+    if slash_idx is None:
+        # 没有 func/basis 形式：尝试找独立的基组与泛函 token（基组在前、泛函在后）
+        basis_tok = next((t for t in tokens if _BASIS_RE.match(t)), '')
+        func_tok = next((t for t in tokens if _FUNCTIONAL_RE.match(t)), '')
+        if basis_tok and func_tok:
+            skip = {basis_tok, func_tok}
+            result['mode'] = ' '.join(t for t in tokens if t not in skip).strip()
+            result['functional'] = func_tok
+            result['basis'] = basis_tok
+            return result
+        result['mode'] = route.strip()
+        return result
+
+    func, _, basis = tokens[slash_idx].partition('/')
+    result['mode'] = ' '.join(tokens[:slash_idx] + tokens[slash_idx + 1:]).strip()
+    # 形如 "6-31g(d,p)/m062x"（基组在前）时交换，保证 field 名与实际含义一致
+    if _BASIS_RE.match(func) and not _BASIS_RE.match(basis):
+        func, basis = basis, func
+    result['functional'] = func
+    result['basis'] = basis
+    return result
+
+
+_TITLE_REJECT_RE = re.compile(
+    r'^(%|#)'
+    r'|[A-Za-z_]{2,}\s*='                       # ITRead= / NAtoms= / Charge= 等内部变量行
+    r'|^[-+]?\d+([\s,.\-+]\d*)*$'               # 纯数字行
+    r'|orientation\s*:'
+    r'|Z-matrix|GradGrad|SCF Done|Entering |Termination|Berny'
+    r'|Redundant|Frequencies|Isotropic|Kept|rms\s+Displacement'
+    r'|Coordinates|^Center\b|Number\s+Number'
+    r'|^-{3,}',
+    re.IGNORECASE,
+)
+
+
+def looks_like_title(text: str) -> bool:
+    """判断一行是否像 GJF 的标题行（排除 Gaussian 内部输出行，如 ITRead= ...）"""
+    if not text:
+        return False
+    s = text.strip()
+    if not s or len(s) > 200:
+        return False
+    if _TITLE_REJECT_RE.search(s):
+        return False
+    return True
+
+
+def _extract_title(lines: list, route_idx: int) -> str:
+    """标题行 = 输入回显区「电荷 自旋」行之前最近的一行合法文本。
+
+    这种取法（而不是「关键词行之后第一行」）可以避开 Gaussian 打印的各种内部行，
+    例如 ITRead= ... 之类，避免把它们误当成标题。
+    """
+    cm_idx = None
+    for i in range(route_idx, min(route_idx + 400, len(lines))):
+        if re.match(r'^\s*[-+]?\d+\s+[-+]?\d+\s*$', lines[i]):
+            cm_idx = i
+            break
+    if cm_idx is None:
+        return ''
+    for j in range(cm_idx - 1, max(route_idx - 1, cm_idx - 15), -1):
+        cand = lines[j].strip()
+        if not cand:
+            continue
+        if _LOG_ROUTE_RE.match(lines[j]) or cand.startswith('%'):
+            break                                     # 已回到关键词行 → 说明没有标题
+        if looks_like_title(cand):
+            return cand
+    return ''
+
+
+def _extract_charge_mult_from_echo(lines: list, route_idx: int):
+    """从输入回显区读取「电荷 自旋」行（关键词行之后的第一处 "0 1" 形式）"""
+    for i in range(route_idx, min(route_idx + 200, len(lines))):
+        m = re.match(r'^\s*([-+]?\d+)\s+([-+]?\d+)\s*$', lines[i])
+        if m:
+            return int(m.group(1)), int(m.group(2))
+    return None, None
+
+
+def parse_log_text(text: str) -> dict:
+    """解析 Gaussian LOG 文本，提取末帧几何 + 电荷/自旋 + 关键词行。
+
+    返回 dict:
+      ok           是否成功取到几何
+      error        失败原因
+      atomic_numbers / coords / atoms（含元素符号）
+      natoms       原子数
+      charge/mult  最后一帧对应的电荷与自旋多重度（可能为 None）
+      route_first  首个关键词行（原始任务的关键词）
+      route_last   最后一个关键词行（多 Link 任务时为最后一步）
+      route_parts  split_route(route_first)
+      title        标题行
+      frames       坐标段总数
+      frame_index  采用的坐标段序号（从 1 开始）
+      source       坐标段类型（Standard/Input/Z-Matrix orientation）
+      normal_termination / error_termination / link_count
+    """
+    from app.core.constants import ATOMIC_NUMBER_TO_SYMBOL
+
+    lines = text.splitlines()
+    blocks = _parse_orientation_blocks(lines)
+    if not blocks:
+        return {
+            'ok': False,
+            'error': '未找到坐标段（Standard orientation / Input orientation），该文件可能不是 Gaussian 输出',
+            'natoms': 0,
+        }
+
+    rank = {'standard': 0, 'input': 1, 'z-matrix': 2}
+    best = min(rank.get(b['kind'], 9) for b in blocks)
+    same_kind = [b for b in blocks if rank.get(b['kind'], 9) == best]
+    chosen = same_kind[-1]                       # 末帧 = 最后一段该类型坐标
+
+    # 电荷/自旋：取最后一帧之前最后一次出现的 Charge/Multiplicity
+    charge = mult = None
+    for idx, line in enumerate(lines):
+        m = _LOG_CHARGE_RE.search(line)
+        if m and idx <= chosen['line']:
+            charge, mult = int(m.group(1)), int(m.group(2))
+    if charge is None:
         for line in lines:
-            if line.strip().startswith('#'):
-                route_lines.append(line.strip())
+            m = _LOG_CHARGE_RE.search(line)
+            if m:
+                charge, mult = int(m.group(1)), int(m.group(2))
                 break
-    if not title_lines:
-        for line in lines:
-            s = line.strip()
-            if s and not s.startswith('#') and not s.startswith('%'):
-                if 'Entering' not in s and 'Link' not in s:
-                    title_lines = [s]
-                    break
-    route_str = '\n'.join(route_lines) if route_lines else '#p b3lpy/6-31G(d,p)'
-    title_str = ' '.join(title_lines) if title_lines else 'Scan Point'
-    return route_str, title_str, charge, mult
+
+    route_lines = [i for i, ln in enumerate(lines) if _LOG_ROUTE_RE.match(ln)]
+    route_first = lines[route_lines[0]].strip() if route_lines else ''
+    route_last = lines[route_lines[-1]].strip() if route_lines else ''
+    title = _extract_title(lines, route_lines[0]) if route_lines else ''
+
+    # 回退：作业未正常结束时没有归档的 Charge/Multiplicity 行，
+    # 此时从输入回显区「电荷 自旋」行读取（关键词行之后的第一处 "0 1"）
+    if charge is None and route_lines:
+        charge, mult = _extract_charge_mult_from_echo(lines, route_lines[0])
+
+    atoms = []
+    for an, (x, y, z) in zip(chosen['atomic_numbers'], chosen['coords']):
+        atoms.append({
+            'atomic_number': an,
+            'symbol': ATOMIC_NUMBER_TO_SYMBOL.get(an, f'X{an}'),
+            'x': x, 'y': y, 'z': z,
+        })
+
+    return {
+        'ok': True,
+        'error': '',
+        'atomic_numbers': chosen['atomic_numbers'],
+        'coords': chosen['coords'],
+        'atoms': atoms,
+        'natoms': len(atoms),
+        'charge': charge,
+        'mult': mult,
+        'route_first': route_first,
+        'route_last': route_last,
+        'route_parts': split_route(route_first),
+        'title': title,
+        'frames': len(blocks),
+        'frame_index': len(same_kind),
+        'source': f"{chosen['kind'].capitalize()} orientation",
+        'normal_termination': 'Normal termination of Gaussian' in text,
+        'error_termination': 'Error termination' in text,
+        'link_count': text.count('Entering Link 1'),
+    }
+
+
+def parse_log_file(log_path: str) -> dict:
+    """读取 LOG 文件并解析（自动识别 .log/.out/.txt 等扩展名）"""
+    if not os.path.exists(log_path):
+        return {'ok': False, 'error': f'文件不存在: {log_path}', 'natoms': 0}
+    try:
+        return parse_log_text(_read_text(log_path))
+    except Exception as e:                       # noqa: BLE001 - 解析失败要回传给前端
+        return {'ok': False, 'error': f'解析失败: {e}', 'natoms': 0}
 
 
 def parse_standard_orientation_at(lines: list, start: int):
@@ -199,28 +394,53 @@ def parse_standard_orientation_at(lines: list, start: int):
     return None, None
 
 
+def best_kind_blocks(lines: list) -> list:
+    """所有坐标段中「最优类型」的那一批（Standard > Input > Z-Matrix），按出现顺序"""
+    blocks = _parse_orientation_blocks(lines)
+    if not blocks:
+        return []
+    rank = {'standard': 0, 'input': 1, 'z-matrix': 2}
+    best = min(rank.get(b['kind'], 9) for b in blocks)
+    return [b for b in blocks if rank.get(b['kind'], 9) == best]
+
+
 def extract_modredundant_scan_steps(lines: list):
-    """提取 ModRedundant 扫描步的构象"""
+    """提取 ModRedundant 扫描步的构象
+
+    真实 Gaussian 输出里，每个**优化步**都会打印一行
+        Step number  1 out of a maximum of 409 on scan point   1 out of  18
+    因此标记数远多于扫描点数；扫描点总数应取「out of M」里的 M。
+    每个扫描点的输出顺序大致为：优化过程 → Optimization completed → 该点收敛构象 → 下一个点。
+    主算法按扫描点编号变化为界取收敛构象；若点数仍不足（log 被截断等），
+    退化为「每个扫描点取其区间内最后一段坐标」。
+    """
     steps = []
     current_scan_point = None
+    converged_point = None
     last_std_orient_atoms = None
     last_std_orient_coords = None
     converged_atoms = None
     converged_coords = None
-    scan_point_pattern = re.compile(r'on scan point\s+(\d+)\s+out of\s+\d+')
+    scan_point_pattern = re.compile(r'on scan point\s+(\d+)\s+out of\s+(\d+)')
+    markers = []
+    total_points = 0
 
     for i, line in enumerate(lines):
         m = scan_point_pattern.search(line)
         if m:
-            new_scan_point = int(m.group(1))
-            if current_scan_point is not None and new_scan_point != current_scan_point:
+            point_no = int(m.group(1))
+            total_points = max(total_points, int(m.group(2)))
+            markers.append((i, point_no))
+            if current_scan_point is not None and point_no != current_scan_point:
                 if converged_atoms is not None:
-                    steps.append((current_scan_point, converged_atoms, converged_coords))
+                    steps.append((converged_point if converged_point is not None
+                                  else current_scan_point, converged_atoms, converged_coords))
                 converged_atoms = None
                 converged_coords = None
+                converged_point = None
                 last_std_orient_atoms = None
                 last_std_orient_coords = None
-            current_scan_point = new_scan_point
+            current_scan_point = point_no
 
         if 'Standard orientation:' in line:
             atoms, coords = parse_standard_orientation_at(lines, i)
@@ -228,15 +448,39 @@ def extract_modredundant_scan_steps(lines: list):
                 last_std_orient_atoms = atoms
                 last_std_orient_coords = coords
 
-        if 'Optimization completed' in line:
-            if last_std_orient_atoms is not None:
-                converged_atoms = last_std_orient_atoms
-                converged_coords = last_std_orient_coords
+        if 'Optimization completed' in line and last_std_orient_atoms is not None:
+            converged_atoms = last_std_orient_atoms
+            converged_coords = last_std_orient_coords
+            converged_point = current_scan_point
 
-    if current_scan_point is not None and converged_atoms is not None:
-        steps.append((current_scan_point, converged_atoms, converged_coords))
+    if converged_atoms is not None:
+        steps.append((converged_point if converged_point is not None else current_scan_point,
+                      converged_atoms, converged_coords))
 
-    return steps
+    expected = total_points or len(set(p for _i, p in markers))
+    if not markers or len(steps) >= expected:
+        return steps
+
+    # 退化路径：每个扫描点取「该点区间内最后一段坐标」
+    blocks = best_kind_blocks(lines)
+    order = []
+    for _i, p in markers:
+        if p not in order:
+            order.append(p)
+    fallback = []
+    for k, point in enumerate(order):
+        start = next(i for i, p in markers if p == point)
+        nxt = len(lines)
+        if k + 1 < len(order):
+            nxt = next((i for i, p in markers if p == order[k + 1]), len(lines))
+        cands = [b for b in blocks if start <= b['line'] < nxt]
+        if not cands:
+            cands = [b for b in blocks if b['line'] < nxt]
+        if not cands:
+            continue
+        block = max(cands, key=lambda b: b['line'])
+        fallback.append((point, block['atomic_numbers'], block['coords']))
+    return fallback if len(fallback) > len(steps) else steps
 
 
 def parse_td_data(log_path: str) -> dict:

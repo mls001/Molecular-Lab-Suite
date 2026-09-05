@@ -1,115 +1,165 @@
 <template>
+  <!-- PyCharm 风格三栏：左=文件列表 / 中=轨道能级表 / 右=解析设置与能隙计算 -->
   <div class="flex-col h-full" style="gap:8px;overflow:hidden;">
-    <h2 style="margin:0;">轨道能量解析</h2>
-    <p style="color:#666;margin:0;font-size:14px;">选择包含 Gaussian .log 文件的文件夹，自动解析并展示轨道能量</p>
-
-    <!-- 控制栏 -->
-    <div class="flex-center flex-shrink-0" style="gap:16px;flex-wrap:wrap;">
-      <button class="btn btn-primary" style="height:32px;" @click="selectFolder">📂 选择文件夹</button>
-      <span v-if="folder" style="color:#1890ff;font-size:13px;">{{ folder }}</span>
-      <span v-else style="color:#999;font-size:13px;">未选择</span>
-      <button class="btn btn-success" style="height:32px;" @click="startParse" :disabled="running || !folder">
-        {{ running ? '解析中...' : '重新解析' }}
-      </button>
-      <button v-if="allData.length" class="btn btn-warning" style="height:32px;" @click="exportCSV">导出 CSV</button>
-      <button v-if="allData.length" class="btn" style="height:32px;background:#722ed1;color:white;" @click="exportExcel">导出 Excel</button>
-    </div>
-
-    <!-- 能隙计算 -->
-    <div class="flex-center flex-shrink-0" style="gap:10px;background:#f9f9f9;padding:6px 14px;border-radius:6px;flex-wrap:wrap;">
-      <span class="label">能隙计算</span>
-      <span style="font-size:13px;">轨道 A</span>
-      <input v-model.number="gapIndexA" type="number" min="1" class="control" style="height:32px; width:96px;" placeholder="序号" />
-      <span style="font-size:13px;">轨道 B</span>
-      <input v-model.number="gapIndexB" type="number" min="1" class="control" style="height:32px; width:96px;" placeholder="序号" />
-      <button class="btn btn-primary" style="height:32px;" @click="calcGap">计算</button>
-      <span v-if="gapResult" style="font-weight:bold;font-size:14px;color:#1890ff;">{{ gapResult }}</span>
-      <span v-if="gapError" style="color:#ff4d4f;font-size:13px;">{{ gapError }}</span>
-    </div>
-
-    <!-- 主区域 -->
-    <div class="flex flex-1 min-h-0" style="gap:16px;border:1px solid #e8e8e8;border-radius:8px;overflow:hidden;">
-      <!-- 左侧列表 -->
-      <div style="width:200px;background:#fafafa;border-right:1px solid #e8e8e8;overflow-y:auto;padding:8px 0;flex-shrink:0;">
-        <div v-if="!allData.length" style="color:#999;text-align:center;padding:20px;font-size:13px;">暂无文件</div>
-        <div
-          v-for="(item, idx) in allData"
-          :key="idx"
-          @click="selectFile(idx)"
-          :style="{
-            padding: '6px 16px',
-            cursor: 'pointer',
-            background: selectedIndex === idx ? '#e6f7ff' : 'transparent',
-            borderLeft: selectedIndex === idx ? '3px solid #1890ff' : '3px solid transparent',
-            fontSize: '13px',
-            whiteSpace: 'nowrap',
-            overflow: 'hidden',
-            textOverflow: 'ellipsis'
-          }"
-          @mouseenter="e=>e.target.style.background='#f0f0f0'"
-          @mouseleave="e=>{if(selectedIndex!==idx) e.target.style.background='transparent'}"
-        >
-          {{ item.filename }}
+    <div class="ide">
+      <!-- ===== 左：文件列表 ===== -->
+      <aside class="ide-pane ide-col ide-left">
+        <div class="ide-pane-head">
+          <span>{{ $t('文件列表') }}</span>
+          <span style="font-weight:400;font-size:12px;color:var(--c-text-3);">{{ allData.length }} 个</span>
         </div>
-      </div>
-
-      <!-- 右侧表格 -->
-      <div class="flex-col flex-1 min-h-0" style="overflow:hidden;padding:10px 12px 0;">
-        <div style="flex-shrink:0;padding:0 0 8px 0;">
-          <div v-if="currentTableData.length" style="font-size:13px;color:#888;">共 {{ currentTableData.length }} 条轨道</div>
-        </div>
-        <div ref="tableContainer" style="flex:1;overflow:auto;padding:0 0 12px 0;">
-          <table v-if="currentTableData.length" style="width:100%;border-collapse:collapse;font-size:13px;">
-            <thead style="position:sticky;top:0;background:#fafafa;z-index:10;">
-              <tr>
-                <th style="padding:6px 10px;border-bottom:1px solid #e8e8e8;text-align:left;">自旋</th>
-                <th style="padding:6px 10px;border-bottom:1px solid #e8e8e8;text-align:left;">类型</th>
-                <th style="padding:6px 10px;border-bottom:1px solid #e8e8e8;text-align:center;">轨道序号</th>
-                <th style="padding:6px 10px;border-bottom:1px solid #e8e8e8;text-align:center;">能量 (Ha)</th>
-                <th style="padding:6px 10px;border-bottom:1px solid #e8e8e8;text-align:center;">能量 (eV)</th>
-                <th style="padding:6px 10px;border-bottom:1px solid #e8e8e8;text-align:center;">标记</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr
-                v-for="(row, rIdx) in currentTableData"
-                :key="rIdx"
-                :style="row.isHOMO ? 'background:#e6f7ff;' : row.isLUMO ? 'background:#fff7e6;' : ''"
-              >
-                <td style="padding:5px 10px;border-bottom:1px solid #f0f0f0;">{{ row.spin }}</td>
-                <td style="padding:5px 10px;border-bottom:1px solid #f0f0f0;">{{ row.type }}</td>
-                <td style="padding:5px 10px;border-bottom:1px solid #f0f0f0;text-align:center;">{{ row.index }}</td>
-                <td style="padding:5px 10px;border-bottom:1px solid #f0f0f0;text-align:center;">{{ row.energy_ha }}</td>
-                <td style="padding:5px 10px;border-bottom:1px solid #f0f0f0;text-align:center;">{{ row.energy_ev }}</td>
-                <td style="padding:5px 10px;border-bottom:1px solid #f0f0f0;text-align:center;font-weight:bold;">
-                  <span v-if="row.isHOMO" style="color:#1890ff;">HOMO</span>
-                  <span v-else-if="row.isLUMO" style="color:#faad14;">LUMO</span>
-                </td>
-              </tr>
-            </tbody>
-          </table>
-          <div v-else style="display:flex;align-items:center;justify-content:center;height:100%;color:#999;font-size:14px;">
-            请选择文件夹并等待解析完成
+        <div class="ide-pane-body" style="padding:6px 0;">
+          <div v-if="!allData.length" class="ide-empty">{{ $t('暂无文件') }}<br>{{ $t('请先在右侧选择文件夹并解析') }}</div>
+          <div
+            v-for="(item, idx) in allData"
+            :key="idx"
+            class="ide-list-item"
+            :class="{ active: selectedIndex === idx }"
+            @click="selectFile(idx)"
+          >
+            {{ item.filename }}
           </div>
         </div>
-      </div>
+      </aside>
+
+      <!-- ===== 中：轨道能级表 ===== -->
+      <section class="ide-pane ide-col ide-center">
+        <div class="ide-pane-head">
+          <span>{{ $t('轨道能级') }}</span>
+          <span style="font-weight:400;font-size:12px;color:var(--c-text-3);">
+            {{ allData.length && allData[selectedIndex] ? allData[selectedIndex].filename : '—' }}
+          </span>
+        </div>
+        <div class="flex-col flex-1 min-h-0" style="overflow:hidden;padding:8px 12px 0;">
+          <div style="flex-shrink:0;padding:0 0 6px 0;">
+            <div v-if="currentTableData.length" style="font-size:13px;color:var(--c-text-2);">{{ $t('共 {n} 条轨道', { n: currentTableData.length }) }}</div>
+          </div>
+          <div ref="tableContainer" style="flex:1;overflow:auto;padding:0 0 12px 0;">
+            <table v-if="currentTableData.length" style="width:100%;border-collapse:collapse;font-size:13px;">
+              <thead style="position:sticky;top:0;background:var(--c-panel);z-index:10;">
+                <tr>
+                  <th style="padding:6px 10px;border-bottom:1px solid var(--c-border);text-align:left;">{{ $t('自旋') }}</th>
+                  <th style="padding:6px 10px;border-bottom:1px solid var(--c-border);text-align:left;">{{ $t('类型') }}</th>
+                  <th style="padding:6px 10px;border-bottom:1px solid var(--c-border);text-align:center;">{{ $t('轨道序号') }}</th>
+                  <th style="padding:6px 10px;border-bottom:1px solid var(--c-border);text-align:center;">{{ $t('能量 (Ha)') }}</th>
+                  <th style="padding:6px 10px;border-bottom:1px solid var(--c-border);text-align:center;">{{ $t('能量 (eV)') }}</th>
+                  <th style="padding:6px 10px;border-bottom:1px solid var(--c-border);text-align:center;">{{ $t('标记') }}</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr
+                  v-for="(row, rIdx) in currentTableData"
+                  :key="rIdx"
+                  :class="{ 'row-homo': row.isHOMO, 'row-lumo': row.isLUMO }"
+                  :style="row.isHOMO ? 'background:var(--c-homo-row);' : row.isLUMO ? 'background:var(--c-lumo-row);' : ''"
+                >
+                  <td style="padding:5px 10px;border-bottom:1px solid var(--c-hover);">{{ row.spin }}</td>
+                  <td style="padding:5px 10px;border-bottom:1px solid var(--c-hover);">{{ row.type }}</td>
+                  <td style="padding:5px 10px;border-bottom:1px solid var(--c-hover);text-align:center;">{{ row.index }}</td>
+                  <td style="padding:5px 10px;border-bottom:1px solid var(--c-hover);text-align:center;">{{ row.energy_ha }}</td>
+                  <td style="padding:5px 10px;border-bottom:1px solid var(--c-hover);text-align:center;">{{ row.energy_ev }}</td>
+                  <td style="padding:5px 10px;border-bottom:1px solid var(--c-hover);text-align:center;font-weight:bold;">
+                    <span v-if="row.isHOMO" style="color:var(--c-homo);">HOMO</span>
+                    <span v-else-if="row.isLUMO" style="color:var(--c-lumo);">LUMO</span>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+            <EmptyNotice
+              v-else-if="parsedOnce"
+              :text="$t('该文件内不含轨道能量信息')"
+              :hint="noticeHint"
+            />
+            <div v-else style="display:flex;align-items:center;justify-content:center;height:100%;color:var(--c-text-3);font-size:14px;">
+              {{ $t('请选择文件夹并等待解析完成') }}
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ===== 右：解析设置 + 能隙计算 ===== -->
+      <aside class="ide-pane ide-col ide-right">
+        <div class="ide-pane-head"><span>{{ $t('解析设置') }}</span></div>
+        <div class="ide-pane-body">
+          <div class="ide-group">
+            <div class="flex-center" style="gap:6px;justify-content:space-between;">
+              <span class="label" style="font-weight:400;">{{ $t('数据来源') }}</span>
+              <div class="flex-center" style="gap:6px;">
+                <button class="btn" style="height:24px;font-size:12px;padding:0 10px;" :class="parseMode === 'local' ? 'btn-primary' : 'btn-default'" @click="parseMode = 'local'">{{ $t('本地') }}</button>
+                <button class="btn" style="height:24px;font-size:12px;padding:0 10px;" :class="parseMode === 'remote' ? 'btn-primary' : 'btn-default'" @click="parseMode = 'remote'" :disabled="!connected">{{ $t('远程') }}</button>
+              </div>
+            </div>
+            <div style="font-size:12px;color:var(--c-text-2);word-break:break-all;">
+              {{ parseMode === 'remote' ? (remoteFolder || $t('未选择远程目录（含 .log）')) : (folder || $t('未选择本地文件夹')) }}
+            </div>
+            <button class="btn" @click="chooseParseSource">{{ parseMode === 'remote' ? $t('选择远程目录') : $t('选择文件夹') }}</button>
+            <button class="btn btn-primary" @click="runParse" :disabled="running || !(parseMode === 'remote' ? remoteFolder : folder)">
+              {{ running ? $t('解析中...') : $t('解析 / 重新解析') }}
+            </button>
+            <div class="flex" style="gap:6px;">
+              <button v-if="allData.length" class="btn" style="flex:1;" @click="exportCSV">{{ $t('导出 CSV') }}</button>
+              <button v-if="allData.length" class="btn" style="flex:1;" @click="exportExcel">{{ $t('导出 Excel') }}</button>
+            </div>
+          </div>
+          <div class="ide-group">
+            <span class="label">{{ $t('能隙计算') }}</span>
+            <div class="flex-center" style="gap:6px;">
+              <span style="font-size:12px;">A</span>
+              <input v-model.number="gapIndexA" type="number" min="1" class="control" style="flex:1;min-width:0;height:28px;" :placeholder="$t('轨道 A 序号')" />
+              <span style="font-size:12px;">B</span>
+              <input v-model.number="gapIndexB" type="number" min="1" class="control" style="flex:1;min-width:0;height:28px;" :placeholder="$t('轨道 B 序号')" />
+            </div>
+            <button class="btn" @click="calcGap" :disabled="!currentTableData.length">{{ $t('计算能隙') }}</button>
+            <div v-if="gapResult" style="font-weight:700;font-size:13px;color:var(--c-accent);">{{ gapResult }}</div>
+            <div v-if="gapError" style="color:var(--c-danger);font-size:13px;">{{ gapError }}</div>
+          </div>
+        </div>
+      </aside>
     </div>
 
-    <LogViewer :lines="logLines" :key="logKey" />
+    <!-- 远程文件浏览器（远程模式选目录） -->
+    <RemoteFileBrowser
+      :visible="browserVisible"
+      :session-id="sessionId"
+      :initial-path="browserInitialPath"
+      :target="browserTarget"
+      @update:visible="browserVisible = $event"
+      @select="onBrowserSelect"
+    />
+
+    <LogViewer :lines="logLines" />
   </div>
 </template>
 
 <script>
 import LogViewer from '../components/LogViewer.vue'
+import RemoteFileBrowser from '../components/RemoteFileBrowser.vue'
+import EmptyNotice from '@/components/EmptyNotice.vue'
 import scrollCache from '@/mixins/scrollCache'
+import { pickDirectory } from '@/api/dialog'
+import { syncRemoteFolder } from '@/api/remoteSync'
+import { useRemoteStore } from '@/stores/remote'
+import { storeToRefs } from 'pinia'
+import { t as $tr } from '@/i18n'
+
 
 export default {
   name: 'OrbitalView',
-  components: { LogViewer },
+  components: { LogViewer, RemoteFileBrowser, EmptyNotice },
   mixins: [scrollCache],
+  setup() {
+    const remoteStore = useRemoteStore()
+    const { connected, sessionId, username } = storeToRefs(remoteStore)
+    return { remoteStore, connected, sessionId, username }
+  },
   data() {
     return {
       folder: '',
+      parseMode: 'local',
+      remoteFolder: '',
+      browserVisible: false,
+      browserInitialPath: '/',
+      browserTarget: '',
       running: false,
       logLines: [],
       logKey: 0,
@@ -122,20 +172,39 @@ export default {
       gapIndexB: null,
       gapResult: '',
       gapError: '',
+      parsedOnce: false,        // 是否已经跑过一次解析（用于区分"未解析"与"该文件不含轨道信息"）
+      noticeHint: '',           // 解析失败原因（显示在提示下方的小字）
+      _pageActive: true,
+      _scrollToken: 0,
+      _scrollRaf: null,
     }
   },
   watch: {
     selectedIndex(val) {
       this.buildCurrentTable(val)
-      this.$nextTick(() => {
-        this.scrollToHOMO_LUMO()
-      })
+      this.autoScrollToHOMO()
       this.gapResult = ''
       this.gapError = ''
     }
   },
   beforeUnmount() {
-    if (this.ws) this.ws.close()
+    this._pageActive = false
+    if (this.ws) {
+      try { this.ws.close() } catch (e) { /* ignore */ }
+      this.ws = null
+    }
+  },
+  deactivated() {
+    // 离开页面（keep-alive 停用）时立即停止解析任务，避免后台消息更新已隐藏/销毁的组件
+    this._pageActive = false
+    if (this.ws) {
+      try { this.ws.close() } catch (e) { /* ignore */ }
+      this.ws = null
+    }
+    this.running = false
+  },
+  activated() {
+    this._pageActive = true
   },
   methods: {
     addLog(text, color = '#d4d4d4') {
@@ -144,18 +213,91 @@ export default {
       if (this.logLines.length > 200) this.logLines.shift()
     },
 
-    async selectFolder() {
-      const path = await window.electronAPI.selectDirectory({ title: '选择包含 .log 文件的文件夹' })
-      if (path) {
-        this.folder = path
-        this.addLog(`📂 选择目录: ${path}`, '#87d2ff')
-        this.allData = []
-        this.currentTableData = []
-        this.selectedIndex = 0
-        this.gapResult = ''
-        this.gapError = ''
-        this.startParse()
+    async chooseParseSource() {
+      if (this.parseMode === 'remote') {
+        if (!this.connected) {
+          this.addLog($tr('请先连接服务器'), '#ffa500')
+          return
+        }
+        this.browserTarget = 'logFolder'
+        this.browserInitialPath = `/home/${this.username}` || '/'
+        this.browserVisible = true
+        return
       }
+      // 本地：选择文件夹（不自动解析，避免与下方“解析”按钮重复）
+      let path
+      try {
+        path = await pickDirectory($tr('选择包含 Gaussian .log 文件的文件夹'))
+      } catch (e) {
+        this.addLog($tr('选择目录失败: {0}', { 0: e.message }), '#ff6b6b')
+        return
+      }
+      if (!path) return
+      this.folder = path
+      this.addLog($tr('本地目录: {0}', { 0: path }), '#87d2ff')
+    },
+
+    async runParse() {
+      if (this.running) return
+      if (this.parseMode === 'local') {
+        if (!this.folder) {
+          this.addLog($tr('请先选择本地文件夹'), '#ffa500')
+          return
+        }
+        this.startParse()
+        return
+      }
+      // 远程：同步 .log 到缓存后解析
+      if (!this.remoteFolder) {
+        this.addLog($tr('请先选择远程目录'), '#ffa500')
+        return
+      }
+      if (!this.connected) {
+        this.addLog($tr('请先连接服务器'), '#ffa500')
+        return
+      }
+      this.running = true
+      this.addLog($tr('远程目录: {0}', { 0: this.remoteFolder }), '#87d2ff')
+      try {
+        const { cacheDir, count } = await syncRemoteFolder(this.sessionId, this.remoteFolder, '.log')
+        this.addLog($tr('已同步 {0} 个 .log → {1}', { 0: count, 1: cacheDir }), '#87d2ff')
+        if (!this._pageActive) {
+          this.running = false
+          return
+        }
+        this.folder = cacheDir
+        this.running = false
+        this.startParse()
+      } catch (e) {
+        this.addLog($tr('远程解析失败: {0}', { 0: e.message }), '#ff6b6b')
+        this.running = false
+      }
+    },
+
+    onBrowserSelect({ target, path, is_dir }) {
+      if (target === 'logFolder') {
+        this.remoteFolder = is_dir ? path : path.substring(0, path.lastIndexOf('/'))
+        this.addLog($tr('远程目录: {0}', { 0: this.remoteFolder }), '#87d2ff')
+      }
+    },
+
+    async selectFolder() {
+      let path
+      try {
+        path = await pickDirectory($tr('选择包含 .log 文件的文件夹'))
+      } catch (e) {
+        this.addLog($tr('选择目录失败: {0}', { 0: e.message }), '#ff6b6b')
+        return
+      }
+      if (!path) return // 用户取消
+      this.folder = path
+      this.addLog($tr(' 选择目录: {0}', { 0: path }), '#87d2ff')
+      this.allData = []
+      this.currentTableData = []
+      this.selectedIndex = 0
+      this.gapResult = ''
+      this.gapError = ''
+      this.startParse()
     },
 
     startParse() {
@@ -168,7 +310,7 @@ export default {
       this.selectedIndex = 0
       this.gapResult = ''
       this.gapError = ''
-      this.addLog('开始解析轨道能量...', '#00ff00')
+      this.addLog($tr('开始解析轨道能量...'), '#00ff00')
 
       const wsUrl = `ws://${__BACKEND_HOST__}:${__BACKEND_PORT__}/ws/orbital`
       this.ws = new WebSocket(wsUrl)
@@ -179,29 +321,28 @@ export default {
       }
 
       this.ws.onmessage = (e) => {
+        if (!this._pageActive || !this.ws) return
         const data = JSON.parse(e.data)
         switch (data.type) {
           case 'progress':
             if (data.status === 'success') {
-              this.addLog(` ${data.filename} 解析成功 [${data.index}/${data.total}]`, '#7cfc00')
+              this.addLog($tr(' {0} 解析成功 [{1}/{2}]', { 0: data.filename, 1: data.index, 2: data.total }), '#7cfc00')
             } else {
-              this.addLog(`❌ ${data.filename} 解析失败: ${data.message}`, '#ff6b6b')
+              this.noticeHint = data.message || ''
+              this.addLog($tr(' {0} 解析失败: {1}', { 0: data.filename, 1: data.message }), '#ff6b6b')
             }
             break
           case 'result':
+            this.parsedOnce = true
             this.allData = data.data
             if (this.allData.length) {
               this.selectedIndex = 0
               this.buildCurrentTable(0)
+              this.autoScrollToHOMO(12)
+              this.addLog($tr('共解析 {0} 个文件', { 0: this.allData.length }), '#87d2ff')
               this.$nextTick(() => {
-                setTimeout(() => {
-                  this.scrollToHOMO_LUMO()
-                }, 100)
+                this.triggerRestore()
               })
-              this.addLog(`共解析 ${this.allData.length} 个文件`, '#87d2ff')
-                this.$nextTick(() => {
-                  this.triggerRestore()
-                })
             }
             break
           case 'done':
@@ -210,7 +351,7 @@ export default {
             this.ws.close()
             break
           case 'error':
-            this.addLog(`❌ ${data.message}`, '#ff6b6b')
+            this.addLog(` ${data.message}`, '#ff6b6b')
             this.running = false
             this.ws.close()
             break
@@ -220,7 +361,7 @@ export default {
       }
 
       this.ws.onerror = () => {
-        this.addLog('❌ WebSocket 错误', '#ff6b6b')
+        this.addLog($tr(' WebSocket 错误'), '#ff6b6b')
         this.running = false
       }
       this.ws.onclose = () => {
@@ -294,35 +435,67 @@ export default {
       this.rowRefs = []
     },
 
+    // 表格刚渲染时容器可能尚未测量完成，采用重试方式确保滚动到 HOMO/LUMO 行
+    autoScrollToHOMO(attempts = 8) {
+      const token = ++this._scrollToken
+      this.$nextTick(() => {
+        const step = () => {
+          if (attempts <= 0 || !this._pageActive || token !== this._scrollToken) return
+          attempts--
+          this.scrollToHOMO_LUMO()
+          setTimeout(step, 120)
+        }
+        step()
+      })
+    },
+
     scrollToHOMO_LUMO() {
       const container = this.$refs.tableContainer
       if (!container) return
-      const rows = container.querySelectorAll('tr')
-      for (const row of rows) {
-        const style = getComputedStyle(row)
-        if (style.backgroundColor === 'rgb(230, 247, 255)' || style.backgroundColor === 'rgb(255, 247, 230)') {
-          row.scrollIntoView({ block: 'center', behavior: 'smooth' })
-          return
-        }
+      // 通过标记类定位 HOMO/LUMO 行（不依赖具体背景色，主题可自由换色）
+      const target = container.querySelector('.row-homo, .row-lumo') ||
+        container.querySelector('tbody tr')
+      if (target) this.fastScrollIntoCenter(container, target)
+    },
+
+    // 自绘滚动：scrollIntoView 的 smooth 时长不可控（行长时很慢），
+    // 这里固定 140ms + easeOutCubic，滚动距离大时也不会拖沓
+    fastScrollIntoCenter(container, el, duration = 140) {
+      const cRect = container.getBoundingClientRect()
+      const eRect = el.getBoundingClientRect()
+      const max = Math.max(0, container.scrollHeight - container.clientHeight)
+      const target = container.scrollTop + (eRect.top - cRect.top)
+        - (container.clientHeight - eRect.height) / 2
+      const to = Math.max(0, Math.min(max, target))
+      const from = container.scrollTop
+      if (Math.abs(to - from) < 1) return
+      if (this._scrollRaf) cancelAnimationFrame(this._scrollRaf)
+      const start = performance.now()
+      const tick = (now) => {
+        const p = Math.min(1, (now - start) / duration)
+        const eased = 1 - Math.pow(1 - p, 3)
+        container.scrollTop = from + (to - from) * eased
+        if (p < 1) this._scrollRaf = requestAnimationFrame(tick)
+        else this._scrollRaf = null
       }
-      if (rows.length) rows[0].scrollIntoView({ block: 'center', behavior: 'smooth' })
+      this._scrollRaf = requestAnimationFrame(tick)
     },
 
     calcGap() {
       this.gapResult = ''
       this.gapError = ''
       if (!this.currentTableData.length) {
-        this.gapError = '请先解析轨道数据'
+        this.gapError = $tr('请先解析轨道数据')
         return
       }
       const a = this.gapIndexA
       const b = this.gapIndexB
       if (a === null || b === null || isNaN(a) || isNaN(b) || a < 1 || b < 1) {
-        this.gapError = '请输入有效的轨道序号（正整数）'
+        this.gapError = $tr('请输入有效的轨道序号（正整数）')
         return
       }
       if (a === b) {
-        this.gapError = '请选择两个不同的轨道序号'
+        this.gapError = $tr('请选择两个不同的轨道序号')
         return
       }
       const findEnergy = (index) => {
@@ -332,11 +505,11 @@ export default {
       const engA = findEnergy(a)
       const engB = findEnergy(b)
       if (engA === null) {
-        this.gapError = `未找到轨道序号 ${a}`
+        this.gapError = $tr('未找到轨道序号 {0}', { 0: a })
         return
       }
       if (engB === null) {
-        this.gapError = `未找到轨道序号 ${b}`
+        this.gapError = $tr('未找到轨道序号 {0}', { 0: b })
         return
       }
       const deltaHa = Math.abs(engA - engB)
@@ -346,7 +519,7 @@ export default {
 
     exportCSV() {
       if (!this.allData.length) return
-      const headers = ['文件', '自旋', '类型', '轨道序号', '能量(Ha)', '能量(eV)', 'HOMO/LUMO']
+      const headers = [$tr('文件'), $tr('自旋'), $tr('类型'), $tr('轨道序号'), $tr('能量(Ha)'), $tr('能量(eV)'), 'HOMO/LUMO']
       const rows = []
       this.allData.forEach(fileData => {
         const filename = fileData.filename
@@ -407,9 +580,9 @@ export default {
           XLSX.utils.book_append_sheet(wb, ws, finalName)
         })
         XLSX.writeFile(wb, 'orbital_energies.xlsx')
-        this.addLog('Excel 导出成功（多个 sheet）', '#7cfc00')
+        this.addLog($tr('Excel 导出成功（多个 sheet）'), '#7cfc00')
       } catch (e) {
-        this.addLog('导出 Excel 需要 xlsx 库，请安装: npm install xlsx', '#ffa500')
+        this.addLog($tr('导出 Excel 需要 xlsx 库，请安装: npm install xlsx'), '#ffa500')
         console.error(e)
       }
     }

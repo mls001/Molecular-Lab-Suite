@@ -1,8 +1,590 @@
-body {
+/* ==========================================================================
+   MLS 设计令牌与全局样式层
+   视觉基调：Windows 98 的"硬朗"立体控件（直角、1px 双色浮雕、无圆角、无柔光）
+             + 现代可读性（低饱和配色、等宽字体、清晰层级）
+   分层：tokens → base → 组件系统(.control/.btn/...) → 布局工具 → 滚动条
+   所有颜色统一走 var(--c-*)，新组件应直接引用令牌以支持亮/暗双主题。
+   ========================================================================== */
+
+/* ---------- 1. 设计令牌 ---------- */
+:root {
+  color-scheme: light;
+
+  /* 表面（对比度提高：窗口底更暗、面板与主区拉开层级） */
+  --c-app: #c9ced5;            /* 窗口最外层/顶栏底 */
+  --c-main: #ffffff;           /* 页面主背景 */
+  --c-panel: #dde1e6;          /* 侧栏/表头/次级面板 */
+  --c-bar: #e0e4e9;            /* 工具条 */
+  --c-elev: #e9ecf0;           /* 浮层/卡片/编辑区上的内容 */
+  --c-editor: #ffffff;         /* 文本编辑器/文本框 */
+  --c-code: #0d0f12;           /* 编辑器文字 */
+  --c-hover: #eff1f4;
+  --c-selected: #1b3557;       /* 选中（98 风格深蓝底白字） */
+  --c-selected-text: #ffffff;
+  --c-accent-soft: #d3dae3;
+  --c-hl-a: #c3d1e0;           /* 表格高亮行 A（HOMO/选中，蓝） */
+  --c-hl-b: #e6dcc6;           /* 表格高亮行 B（LUMO/琥珀） */
+  --c-homo: #3a546e;           /* HOMO（低饱和钢蓝） */
+  --c-homo-row: rgba(58, 84, 110, 0.18);
+  --c-lumo: #7d4c43;           /* LUMO（低饱和砖红） */
+  --c-lumo-row: rgba(125, 76, 67, 0.18);
+
+  /* 边框与浮雕（浮雕=98 风格立体感来源） */
+  --c-border: #a3aab3;
+  --c-border-soft: #bcc3cb;
+  --c-border-strong: #565d65;
+  --bevel-light: #ffffff;
+  --bevel-dark: #767e87;
+  --c-btn-face: #d5d9df;
+  --c-scroll-track: #eef0f3;
+
+  /* 标题栏（分组框/窗口标题）：去饱和的石板蓝 */
+  --c-titlebar-a: #212c39;
+  --c-titlebar-b: #465a6e;
+  --c-titlebar-text: #ffffff;
+
+  /* 文字（对比度提高） */
+  --c-text: #0c0e11;
+  --c-text-2: #363c43;
+  --c-text-3: #666d75;
+  --c-on-accent: #ffffff;
+
+  /* 强调/语义（统一去饱和，色相不变） */
+  --c-accent: #37516d;
+  --c-accent-hover: #2a4058;
+  --c-blue: #29465f;
+  --c-green: #39573c;
+  --c-warning: #6f5a2e;
+  --c-danger: #8a3838;
+  --c-link: #29465f;
+
+  /* 字体：Tahoma 提供 98 时代的骨架，中文回退到雅黑；编辑器用等宽 */
+  --font-ui: Tahoma, 'Segoe UI', 'Microsoft YaHei UI', 'Microsoft YaHei', sans-serif;
+  --font-mono: 'Cascadia Mono', Consolas, 'Courier New', monospace;
+
+  /* 圆角：全部为 0，保持硬朗直角 */
+  --r-sm: 0;
+  --r-md: 0;
+  --r-lg: 0;
+}
+
+:root[data-theme='dark'] {
+  color-scheme: dark;
+
+  --c-app: #121417;
+  --c-main: #1f2226;
+  --c-panel: #282c31;
+  --c-bar: #25292e;
+  --c-elev: #2d3136;
+  --c-editor: #14161a;
+  --c-code: #e2e6ea;
+  --c-hover: #363b41;
+  --c-selected: #27456f;
+  --c-selected-text: #eef3fa;
+  --c-accent-soft: rgba(120, 152, 184, 0.16);
+  --c-hl-a: rgba(120, 152, 184, 0.20);
+  --c-hl-b: rgba(176, 152, 106, 0.18);
+  --c-homo: #8fb0cf;
+  --c-homo-row: rgba(143, 176, 207, 0.16);
+  --c-lumo: #c99489;
+  --c-lumo-row: rgba(201, 148, 137, 0.16);
+
+  --c-border: #454b52;
+  --c-border-soft: #333940;
+  --c-border-strong: #0d0f11;
+  --bevel-light: #4c5259;
+  --bevel-dark: #0e1013;
+  --c-btn-face: #343940;
+  --c-scroll-track: #1c1f23;
+
+  --c-titlebar-a: #17202b;
+  --c-titlebar-b: #33465c;
+  --c-titlebar-text: #e4ecf4;
+
+  --c-text: #e6eaee;
+  --c-text-2: #aeb5bd;
+  --c-text-3: #7f868e;
+  --c-on-accent: #ffffff;
+
+  --c-accent: #52759c;
+  --c-accent-hover: #6384a9;
+  --c-blue: #7ba4c9;
+  --c-green: #7ba47e;
+  --c-warning: #c0a06a;
+  --c-danger: #c98080;
+  --c-link: #8fb0cf;
+}
+
+/* ---------- 2. 基础 ---------- */
+* {
   margin: 0;
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
-  background: #f0f2f5;
+  padding: 0;
+  box-sizing: border-box;
+}
+html,
+body {
+  height: 100%;
+}
+body {
+  font-family: var(--font-ui);
+  background: var(--c-app);
+  color: var(--c-text);
+  font-size: 12px;
+  overflow: hidden;
+  -webkit-font-smoothing: antialiased;
 }
 #app {
   height: 100vh;
+}
+::selection {
+  background: var(--c-selected);
+  color: var(--c-selected-text);
+}
+
+/* 滚动条（98 风格：直角 + 浮雕滑块 + 网格轨道） */
+* {
+  scrollbar-width: auto;
+  scrollbar-color: var(--c-btn-face) var(--c-scroll-track);
+}
+*::-webkit-scrollbar {
+  width: 14px;
+  height: 14px;
+}
+*::-webkit-scrollbar-thumb {
+  background: var(--c-btn-face);
+  border: 1px solid var(--c-border-strong);
+  box-shadow: inset 1px 1px 0 var(--bevel-light), inset -1px -1px 0 var(--bevel-dark);
+}
+*::-webkit-scrollbar-thumb:hover {
+  background: var(--c-hover);
+}
+*::-webkit-scrollbar-thumb:active {
+  box-shadow: inset 1px 1px 0 var(--bevel-dark), inset -1px -1px 0 var(--bevel-light);
+}
+*::-webkit-scrollbar-track,
+*::-webkit-scrollbar-corner {
+  background: var(--c-scroll-track);
+}
+*::-webkit-scrollbar-track {
+  box-shadow: inset 1px 1px 0 var(--bevel-dark);
+}
+
+/* ---------- 3. 组件系统（供所有页面复用） ---------- */
+
+/* --- 输入控件（98 风格：白底 + 下沉边框） --- */
+.control {
+  border: 1px solid var(--c-border-strong);
+  border-radius: 0;
+  padding: 0 6px;
+  font-size: 12px;
+  box-sizing: border-box;
+  background: var(--c-editor);
+  color: var(--c-code);
+  outline: none;
+  box-shadow: inset 1px 1px 0 var(--bevel-dark);
+}
+.control:focus {
+  border-color: var(--c-accent);
+  box-shadow: inset 1px 1px 0 var(--bevel-dark), 0 0 0 1px var(--c-accent);
+}
+.control:disabled {
+  background: var(--c-panel);
+  color: var(--c-text-3);
+  cursor: not-allowed;
+}
+.control::placeholder {
+  color: var(--c-text-3);
+}
+
+/* --- 高度等级 --- */
+.h-sm { height: 22px; }
+.h-md { height: 26px; }
+.h-lg { height: 30px; }
+
+/* --- 宽度等级 --- */
+.w-xs { width: 50px; }
+.w-sm { width: 70px; }
+.w-md { width: 100px; }
+.w-lg { width: 140px; }
+.w-xl { width: 200px; }
+.w-2xl { width: 260px; }
+.w-3xl { width: 360px; }
+.w-full { width: 100%; }
+
+/* --- 只读预览框 --- */
+.preview {
+  background: var(--c-panel);
+  color: var(--c-text-2);
+  cursor: default;
+}
+
+/* --- 标签 --- */
+.label {
+  font-weight: 700;
+  font-size: 12px;
+  color: var(--c-text);
+  white-space: nowrap;
+}
+
+/* --- 按钮（98 风格浮雕：中性面 + 上左高光/下右阴影；语义靠文字色） --- */
+.btn {
+  border: 1px solid var(--c-border-strong);
+  border-radius: 0;
+  font-size: 12px;
+  cursor: pointer;
+  box-sizing: border-box;
+  padding: 0 12px;
+  height: 26px;
+  line-height: 1;
+  background: var(--c-btn-face);
+  color: var(--c-text);
+  box-shadow: inset 1px 1px 0 var(--bevel-light), inset -1px -1px 0 var(--bevel-dark);
+}
+.btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+.btn:hover:not(:disabled) {
+  background: var(--c-hover);
+}
+.btn:active:not(:disabled) {
+  box-shadow: inset 1px 1px 0 var(--bevel-dark), inset -1px -1px 0 var(--bevel-light);
+  padding-top: 1px;
+}
+.btn-default {
+  background: var(--c-btn-face);
+  border-color: var(--c-border-strong);
+  color: var(--c-text);
+}
+.btn-primary {
+  background: var(--c-accent);
+  color: var(--c-on-accent);
+  border-color: var(--c-border-strong);
+}
+.btn-primary:hover:not(:disabled) {
+  background: var(--c-accent-hover);
+}
+.btn-success {
+  background: var(--c-btn-face);
+  border-color: var(--c-border-strong);
+  color: var(--c-green);
+}
+.btn-success:hover:not(:disabled) {
+  background: var(--c-hover);
+}
+.btn-warning {
+  background: var(--c-btn-face);
+  border-color: var(--c-border-strong);
+  color: var(--c-warning);
+}
+.btn-warning:hover:not(:disabled) {
+  background: var(--c-hover);
+}
+.btn-danger {
+  background: var(--c-btn-face);
+  border-color: var(--c-border-strong);
+  color: var(--c-danger);
+}
+.btn-danger:hover:not(:disabled) {
+  background: var(--c-hover);
+}
+
+/* --- 选择框 --- */
+select.control {
+  appearance: auto;
+  padding-right: 20px;
+}
+
+/* --- 文本框 --- */
+textarea.control {
+  padding: 6px;
+  resize: vertical;
+  font-family: var(--font-mono);
+  line-height: 1.45;
+  background: var(--c-editor);
+  color: var(--c-code);
+}
+
+/* --- 未使用 .control 的原生输入控件兜底（保持与主题一致） --- */
+input[type='text'],
+input[type='password'],
+input[type='number'],
+input[type='search'],
+input:not([type]),
+select,
+textarea {
+  background: var(--c-editor);
+  color: var(--c-code);
+  border: 1px solid var(--c-border-strong);
+  border-radius: 0;
+}
+input[type='text']:focus,
+input[type='password']:focus,
+input[type='number']:focus,
+input:not([type]):focus,
+select:focus,
+textarea:focus {
+  outline: none;
+  border-color: var(--c-accent);
+}
+
+/* --- 复选框：方形、无圆角 --- */
+input[type='checkbox'],
+input[type='radio'] {
+  accent-color: var(--c-accent);
+  cursor: pointer;
+}
+
+/* --- 链接/路由 --- */
+a {
+  color: var(--c-link);
+}
+
+/* --- 模态浮层（所有弹窗共用） --- */
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(20, 22, 25, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+}
+.modal-content {
+  border: 2px solid var(--c-border-strong);
+  border-radius: 0;
+  box-shadow: 4px 4px 0 rgba(0, 0, 0, 0.35);
+}
+
+/* --- 面板/工具条（页面主结构复用，替代散落的 inline 样式） --- */
+.mls-panel {
+  background: var(--c-main);
+  border: 1px solid var(--c-border-strong);
+  border-radius: 0;
+  box-shadow: 1px 1px 0 var(--bevel-dark);
+  overflow: hidden;
+}
+/* 面板标题栏：与 .ide-pane-head 保持完全一致的尺寸，保证各页面观感统一 */
+.mls-panel-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  height: 22px;
+  padding: 0 8px;
+  background: linear-gradient(90deg, var(--c-titlebar-a), var(--c-titlebar-b));
+  color: var(--c-titlebar-text);
+  font-weight: 700;
+  font-size: 12px;
+  border-bottom: 1px solid var(--c-border-strong);
+  flex-shrink: 0;
+  box-sizing: border-box;
+}
+/* 工具条：固定高度，避免各页面按钮行高度不一 */
+.mls-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 30px;
+  padding: 0 8px;
+  background: var(--c-bar);
+  border-bottom: 1px solid var(--c-border);
+  flex-shrink: 0;
+  flex-wrap: nowrap;
+  box-sizing: border-box;
+}
+/* 次级信息条（"共 N 项 / 可用 M 个" 之类）：与标题栏同一左内边距、固定高度 */
+.mls-subhead {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 20px;
+  padding: 0 8px;
+  font-size: 11px;
+  color: var(--c-text-3);
+  background: var(--c-panel);
+  border-bottom: 1px solid var(--c-border-soft);
+  flex-shrink: 0;
+  box-sizing: border-box;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* ---------- 4. Flex / 布局工具类 ---------- */
+.flex { display: flex; }
+.flex-col { display: flex; flex-direction: column; }
+.flex-center { display: flex; align-items: center; }
+.flex-1 { flex: 1; }
+.flex-shrink-0 { flex-shrink: 0; }
+.min-h-0 { min-height: 0; }
+.h-full { height: 100%; }
+
+/* --- 间距 --- */
+.mr-1 { margin-right: 4px; }
+.mr-2 { margin-right: 8px; }
+.mr-3 { margin-right: 12px; }
+.ml-1 { margin-left: 4px; }
+.ml-2 { margin-left: 8px; }
+.ml-3 { margin-left: 12px; }
+.mt-1 { margin-top: 4px; }
+.mt-2 { margin-top: 8px; }
+.mb-1 { margin-bottom: 4px; }
+.mb-2 { margin-bottom: 8px; }
+.gap-1 { gap: 4px; }
+.gap-2 { gap: 8px; }
+.gap-3 { gap: 12px; }
+.gap-4 { gap: 16px; }
+
+/* --- 三栏 IDE 布局骨架（左文件列表 / 中内容窗口 / 右参数面板，供各功能页复用） --- */
+.ide {
+  display: flex;
+  flex: 1;
+  gap: 6px;
+  min-height: 0;
+}
+.ide-col {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+.ide-pane {
+  background: var(--c-main);
+  border: 1px solid var(--c-border-strong);
+  border-radius: 0;
+  box-shadow: 1px 1px 0 var(--bevel-dark);
+  overflow: hidden;
+}
+.ide-left {
+  width: 240px;
+  flex-shrink: 0;
+}
+.ide-right {
+  width: 290px;
+  flex-shrink: 0;
+}
+.ide-center {
+  flex: 1;
+  min-width: 0;
+}
+.ide-pane-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  height: 22px;
+  padding: 0 8px;
+  border-bottom: 1px solid var(--c-border-strong);
+  background: linear-gradient(90deg, var(--c-titlebar-a), var(--c-titlebar-b));
+  color: var(--c-titlebar-text);
+  flex-shrink: 0;
+  font-weight: 700;
+  font-size: 12px;
+  box-sizing: border-box;
+}
+.ide-pane-head .btn {
+  height: 20px;
+  padding: 0 8px;
+  font-size: 11px;
+}
+/* 深色标题栏内的次级文字：强制浅色，避免 inline 的 --c-text-3 在深底上不可读 */
+.ide-pane-head > span + span,
+.ide-pane-head > span + div {
+  color: rgba(255, 255, 255, 0.8) !important;
+}
+.ide-pane-head .label {
+  color: var(--c-titlebar-text);
+}
+.ide-pane-body {
+  flex: 1;
+  overflow-y: auto;
+  min-height: 0;
+}
+.ide-right .ide-pane-body {
+  padding: 8px 10px;
+}
+/* 右侧面板内的分组 */
+.ide-group {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  border-bottom: 1px solid var(--c-border-soft);
+  padding: 6px 0;
+}
+.ide-group:last-child {
+  border-bottom: none;
+}
+.ide-list-item {
+  padding: 3px 8px;
+  cursor: pointer;
+  font-size: 12px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--c-text);
+  border-left: 3px solid transparent;
+}
+.ide-list-item:hover {
+  background: var(--c-hover);
+}
+.ide-list-item.active {
+  background: var(--c-hl-a);
+  border-left-color: var(--c-accent);
+}
+.ide-empty {
+  color: var(--c-text-3);
+  text-align: center;
+  padding: 18px;
+  font-size: 12px;
+}
+
+/* --- 底部终端面板（终端保持固定深色） --- */
+.terminal-panel {
+  flex-shrink: 0;
+  background: #1e1e1e;
+  border-top: 1px solid #3a3a3a;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+
+}
+@keyframes slideUp {
+  from { height: 0; opacity: 0; }
+  to { height: 280px; opacity: 1; }
+}
+.terminal-panel-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  background: #2d2d2d;
+  padding: 4px 12px;
+  flex-shrink: 0;
+}
+.terminal-panel-title {
+  color: #cccccc;
+  font-size: 13px;
+  font-weight: 500;
+}
+.terminal-panel-close {
+  background: transparent;
+  border: none;
+  color: #cccccc;
+  cursor: pointer;
+  font-size: 16px;
+  padding: 0 4px;
+}
+.terminal-panel-close:hover {
+  color: #ffffff;
+  background: #e81123;
+  border-radius: 4px;
+}
+.terminal-panel-body {
+  flex: 1;
+  overflow: hidden;
+}
+.terminal-panel-body .xterm {
+  height: 100% !important;
+}
+.terminal-panel-body .xterm-viewport {
+  width: 100% !important;
 }

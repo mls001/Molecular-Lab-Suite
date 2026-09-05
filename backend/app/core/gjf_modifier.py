@@ -90,21 +90,46 @@ def modify_gjf_content(input_path: str, mem: str, nprocshared: str, keyword: str
     return new_lines
 
 
+def build_gjf_text(mem: str, nprocshared: str, keyword: str, charge, mult,
+                   atomic_numbers: list, coordinates: list,
+                   title: str = "Generated from log", chk_name: str = None,
+                   symbols: list = None) -> str:
+    """根据坐标生成完整的 GJF 文本（LOG → GJF 用）
+
+    chk_name 为 None 时由调用方决定；symbols 可直接给元素符号，否则由原子序数查表。
+    """
+    from app.core.constants import ATOMIC_NUMBER_TO_SYMBOL
+
+    if symbols is None:
+        symbols = [ATOMIC_NUMBER_TO_SYMBOL.get(int(an), f"X{an}") for an in atomic_numbers]
+
+    lines = []
+    if chk_name:
+        lines.append(f"%chk={chk_name}\n")
+    lines.append(f"%mem={mem}\n")
+    lines.append(f"%nprocshared={nprocshared}\n")
+    lines.append(f"{keyword}\n")
+    lines.append("\n")
+    lines.append(f"{title}\n")
+    lines.append("\n")
+    lines.append(f"{charge} {mult}\n")
+    for sym, coord in zip(symbols, coordinates):
+        x, y, z = coord
+        lines.append(f" {sym:<2s}  {x:12.6f} {y:12.6f} {z:12.6f}\n")
+    lines.append("\n")
+    return ''.join(lines)
+
+
 def write_gjf_from_coords(output_path: str, mem: str, nprocshared: str, keyword: str,
                           charge: str, mult: str, atomic_numbers: list, coordinates: list,
                           title: str = "Generated from log"):
-    """从坐标写入 GJF 文件"""
-    from backend.app.core.constants import ATOMIC_NUMBER_TO_SYMBOL
+    """从坐标写入 GJF 文件（保留旧接口）"""
+    text = build_gjf_text(
+        mem=mem, nprocshared=nprocshared, keyword=keyword, charge=charge, mult=mult,
+        atomic_numbers=atomic_numbers, coordinates=coordinates, title=title,
+        chk_name=os.path.basename(output_path).replace('.gjf', '.chk'),
+    )
     with open(output_path, 'w', encoding='utf-8') as f:
-        f.write(f"%chk={os.path.basename(output_path).replace('.gjf', '.chk')}\n")
-        f.write(f"%mem={mem}\n")
-        f.write(f"%nprocshared={nprocshared}\n")
-        f.write(f"{keyword}\n")
-        f.write("\n")
-        f.write(f"{title}\n")
-        f.write("\n")
-        f.write(f"{charge} {mult}\n")
-        for an, (x, y, z) in zip(atomic_numbers, coordinates):
-            sym = ATOMIC_NUMBER_TO_SYMBOL.get(an, f"X{an}")
-            f.write(f" {sym:<2s}  {x:12.6f} {y:12.6f} {z:12.6f}\n")
-        f.write("\n")
+        f.write(text)
+    return text
+

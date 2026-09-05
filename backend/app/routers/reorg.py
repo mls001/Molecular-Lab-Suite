@@ -38,6 +38,7 @@ async def reorg_websocket(websocket: WebSocket):
         root = params.get("root", "1")
         sm = params.get("sm", "1")
         c = params.get("c", "0")
+        coord = params.get("coord", "CARTESIAN")
         state1 = params.get("state1")
         state2 = params.get("state2")
         ic = params.get("ic", "off")
@@ -82,7 +83,8 @@ async def reorg_websocket(websocket: WebSocket):
                     f"ob='{ob}'" if ob else "",
                     f"root={root}",
                     f"sm={sm}",
-                    f"c={c}"
+                    f"c={c}",
+                    f"coord={coord}"
                 ]
                 cmd_parts = [p for p in cmd_parts if p]
                 if state1:

@@ -4,9 +4,23 @@ import os
 import glob
 import tempfile
 from urllib.parse import unquote
-from app.core.gjf_modifier import modify_gjf_content
-from typing import List
+from app.core.gjf_modifier import modify_gjf_content, build_gjf_text
+from app.core.log_parser import parse_log_file, parse_log_text, _read_text
+from typing import List, Optional
 router = APIRouter()
+
+LOG_EXTENSIONS = ('.log', '.out')
+
+
+def _norm_dir(path: str) -> str:
+    return unquote(path or '').replace('/', os.sep).replace('\\', os.sep)
+
+
+def _base_name(filename: str) -> str:
+    """去掉 .log/.out 等扩展名，得到基础文件名"""
+    base = os.path.basename(filename or '')
+    stem, ext = os.path.splitext(base)
+    return stem if ext.lower() in LOG_EXTENSIONS else base
 
 
 # ========== HTTP 端点 ==========
@@ -103,6 +117,219 @@ async def rename_file(req: RenameRequest):
         return {"message": "重命名成功", "new_name": req.new_name}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# ========== LOG → GJF（与修改 GJF 同页的 LOG 模式） ==========
+
+@router.get("/log-list")
+async def list_log_files(path: str):
+    """列出目录下的 Gaussian 输出文件（.log / .out）"""
+    folder = _norm_dir(path)
+    if not os.path.isdir(folder):
+        raise HTTPException(status_code=400, detail="无效目录")
+    try:
+        files = []
+        with os.scandir(folder) as it:            # 不用 glob：避免 '[' 等通配符目录名出问题
+            for entry in it:
+                if entry.is_file() and entry.name.lower().endswith(LOG_EXTENSIONS):
+                    files.append(entry.name)
+        return {"files": sorted(set(files), key=str.lower)}
+    except PermissionError:
+        raise HTTPException(status_code=403, detail=f"没有权限读取目录: {folder}")
+    except OSError as e:
+        raise HTTPException(status_code=500, detail=f"读取目录失败: {e}")
+
+
+class LogParseRequest(BaseModel):
+    # 注意：这里必须写 Optional[str]，否则显式传 None 会被 Pydantic v2 判为校验错误
+    path: Optional[str] = None       # 本地文件路径
+    content: Optional[str] = None    # 或直接给文本（远程缓存内容）
+
+
+def _read_log_text(path: str) -> str:
+    """读取 LOG 文本（多编码兼容）；路径非法/无权限时给出明确错误"""
+    if not os.path.exists(path):
+        raise HTTPException(status_code=404, detail=f"文件不存在: {path}")
+    if os.path.isdir(path):
+        raise HTTPException(status_code=400, detail=f"这是一个文件夹而不是文件: {path}")
+    try:
+        return _read_text(path)
+    except PermissionError:
+        raise HTTPException(status_code=403, detail=f"没有权限读取文件: {path}")
+    except OSError as e:
+        raise HTTPException(status_code=500, detail=f"读取文件失败: {e}")
+
+
+def _resolve_log_text(path: Optional[str] = None, content: Optional[str] = None) -> str:
+    if content is not None:
+        return content
+    if not path:
+        raise HTTPException(status_code=400, detail="缺少 path 或 content")
+    return _read_log_text(path)
+
+
+@router.post("/log-parse")
+async def log_parse(req: LogParseRequest):
+    """解析 LOG：末帧坐标、电荷/自旋、关键词行、收敛状态"""
+    text = _resolve_log_text(req.path, req.content)
+    try:
+        info = parse_log_text(text)
+    except Exception as e:                        # noqa: BLE001 - 解析异常也要以 JSON 形式回传
+        raise HTTPException(status_code=400, detail=f"解析失败: {type(e).__name__}: {e}")
+    if not info.get('ok'):
+        raise HTTPException(status_code=400, detail=info.get('error') or '解析失败')
+    return info
+
+
+class LogToGjfRequest(BaseModel):
+    path: Optional[str] = None
+    content: Optional[str] = None
+    filename: Optional[str] = None
+    prefix: str = ""
+    mem: str = "20GB"
+    nproc: str = "8"
+    keyword: str = "#p opt b3lyp/6-31g(d,p)"
+    charge: str = "0"
+    mult: str = "1"
+    use_log_charge_mult: bool = True   # 电荷/自旋取用 LOG 中检测到的值
+    use_log_keyword: bool = True       # 关键词行取用 LOG 中原始 route（默认沿用原任务方法）
+    title: Optional[str] = None        # 不填则使用原 LOG 文件名作为标题行
+
+
+def _build_from_info(info: dict, req: LogToGjfRequest, source_name: str) -> dict:
+    """依据解析结果与参数生成 GJF 文本与文件名"""
+    if not info.get('ok'):
+        raise HTTPException(status_code=400, detail=info.get('error') or '解析失败')
+
+    charge, mult = str(req.charge), str(req.mult)
+    if req.use_log_charge_mult:
+        if info.get('charge') is not None:
+            charge = str(info['charge'])
+        if info.get('mult') is not None:
+            mult = str(info['mult'])
+
+    keyword = (req.keyword or '').strip() or '#p opt b3lyp/6-31g(d,p)'
+    if req.use_log_keyword and info.get('route_first'):
+        keyword = info['route_first']
+
+    out_name = req.filename or f"{req.prefix}{_base_name(source_name)}.gjf"
+    if not out_name.lower().endswith('.gjf'):
+        out_name = f"{_base_name(out_name)}.gjf"
+
+    # 标题行使用原 LOG 文件名（不再从 LOG 文本里猜标题，避免取到 ITRead= 之类的内部行）
+    title = req.title if req.title else _base_name(source_name)
+    gjf_text = build_gjf_text(
+        mem=req.mem, nprocshared=req.nproc, keyword=keyword, charge=charge, mult=mult,
+        atomic_numbers=info['atomic_numbers'], coordinates=info['coords'],
+        title=title, chk_name=out_name.replace('.gjf', '.chk').replace('.GJF', '.chk'),
+    )
+    return {
+        "content": gjf_text,
+        "filename": out_name,
+        "charge": charge,
+        "mult": mult,
+        "keyword": keyword,
+        "title": title,
+        "log_title": info.get('title') or '',      # LOG 中检出的标题，仅供界面显示
+        "info": info,
+    }
+
+
+@router.post("/log-to-gjf")
+async def log_to_gjf(req: LogToGjfRequest):
+    """单个 LOG → GJF（只生成内容，不落盘；由前端保存到输入/输出目录）"""
+    text = _resolve_log_text(req.path, req.content)
+    try:
+        info = parse_log_text(text)
+    except Exception as e:                        # noqa: BLE001 - 异常也要以 JSON 形式回传
+        raise HTTPException(status_code=400, detail=f"解析失败: {type(e).__name__}: {e}")
+    source_name = req.path or req.filename or 'output.log'
+    return _build_from_info(info, req, source_name)
+
+
+class LogBatchRequest(BaseModel):
+    input_folder: str
+    output_folder: str
+    files: List[str] = []
+    prefix: str = ""
+    mem: str = "20GB"
+    nproc: str = "8"
+    keyword: str = "#p opt b3lyp/6-31g(d,p)"
+    charge: str = "0"
+    mult: str = "1"
+    title: Optional[str] = None        # 不填则每个文件用各自的 LOG 文件名作标题行
+    use_log_charge_mult: bool = True
+    use_log_keyword: bool = True       # 默认沿用每个 LOG 各自的关键词
+    overwrite: bool = True
+
+
+@router.post("/log-batch")
+async def log_batch(req: LogBatchRequest):
+    """批量 LOG → GJF，直接写入输出目录"""
+    input_folder = _norm_dir(req.input_folder)
+    output_folder = _norm_dir(req.output_folder)
+    if not os.path.isdir(input_folder):
+        raise HTTPException(status_code=400, detail="输入文件夹不存在")
+    try:
+        os.makedirs(output_folder, exist_ok=True)
+    except OSError as e:
+        raise HTTPException(status_code=400, detail=f"无法创建输出目录: {e}")
+
+    if req.files:
+        log_files = [os.path.join(input_folder, f) for f in req.files]
+    else:
+        log_files = []
+        with os.scandir(input_folder) as it:      # 不用 glob：避免 '[' 等通配符目录名出问题
+            for entry in it:
+                if entry.is_file() and entry.name.lower().endswith(LOG_EXTENSIONS):
+                    log_files.append(entry.path)
+        log_files = sorted(set(log_files), key=str.lower)
+
+    if not log_files:
+        raise HTTPException(status_code=400, detail="未找到 .log / .out 文件")
+
+    results = []
+    for log_path in log_files:
+        basename = os.path.basename(log_path)
+        if not os.path.exists(log_path):
+            results.append({"filename": basename, "status": "error", "message": "文件不存在"})
+            continue
+        try:
+            info = parse_log_file(log_path)
+            if not info.get('ok'):
+                results.append({"filename": basename, "status": "error",
+                                "message": info.get('error') or '解析失败'})
+                continue
+            single = LogToGjfRequest(
+                path=log_path, prefix=req.prefix, mem=req.mem, nproc=req.nproc,
+                keyword=req.keyword, charge=req.charge, mult=req.mult, title=req.title,
+                use_log_charge_mult=req.use_log_charge_mult,
+                use_log_keyword=req.use_log_keyword,
+            )
+            built = _build_from_info(info, single, log_path)
+            output_path = os.path.join(output_folder, built['filename'])
+            if os.path.exists(output_path) and not req.overwrite:
+                results.append({"filename": basename, "status": "skipped",
+                                "message": "目标文件已存在", "output": output_path})
+                continue
+            with open(output_path, 'w', encoding='utf-8') as f:
+                f.write(built['content'])
+            results.append({
+                "filename": basename,
+                "status": "success",
+                "output": output_path,
+                "output_name": built['filename'],
+                "natoms": info['natoms'],
+                "charge": built['charge'],
+                "mult": built['mult'],
+                "frames": info['frames'],
+                "took_last_frame_of": info['source'],
+            })
+        except Exception as e:                     # noqa: BLE001 - 单文件失败不影响整批
+            results.append({"filename": basename, "status": "error", "message": str(e)})
+
+    success = sum(1 for r in results if r['status'] == 'success')
+    return {"results": results, "total": len(results), "success": success}
 
 
 # ========== WebSocket 批量修改（保留原有） ==========

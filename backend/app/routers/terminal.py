@@ -13,7 +13,7 @@ async def terminal_websocket(websocket: WebSocket):
     session_id = None
     channel = None
     read_thread = None
-    loop = asyncio.get_event_loop()
+    loop = asyncio.get_running_loop()
     closed = False
 
     try:
@@ -23,6 +23,10 @@ async def terminal_websocket(websocket: WebSocket):
         print(f"[TERMINAL] session: {session_id}, path: {initial_path}")
 
         if not session_id or session_id not in ssh_sessions:
+            await websocket.send_json({
+                "type": "output",
+                "data": "\r\n[终端错误] 无效的 SSH 会话，请重新连接服务器。\r\n"
+            })
             await websocket.send_json({"type": "error", "message": "Invalid session"})
             await websocket.close()
             closed = True
@@ -30,9 +34,22 @@ async def terminal_websocket(websocket: WebSocket):
 
         ssh = ssh_sessions[session_id]["ssh"]
 
-        # 创建交互式 shell 通道
-        channel = ssh.invoke_shell(term='xterm-256color', width=120, height=40)
+        # 创建交互式 shell 通道（失败时给出可见提示，避免前台只有空光标）
+        try:
+            channel = ssh.invoke_shell(term='xterm-256color', width=120, height=40)
+        except Exception as e:
+            print(f"[TERMINAL] invoke_shell failed: {e}")
+            await websocket.send_json({
+                "type": "output",
+                "data": f"\r\n[终端错误] 无法打开远程 shell（{e}），请检查服务器是否允许 pty/交互登录。\r\n"
+            })
+            await websocket.send_json({"type": "error", "message": str(e)})
+            await websocket.close()
+            closed = True
+            return
+
         channel.settimeout(0.0)
+        print("[TERMINAL] invoke_shell OK")
 
         # 读取线程（持续运行）
         def reader():
@@ -53,22 +70,19 @@ async def terminal_websocket(websocket: WebSocket):
                         time.sleep(0.02)
                 except Exception as e:
                     print(f"[TERMINAL] read error: {e}")
-                    # 不要退出，继续循环
                     time.sleep(0.1)
             print("[TERMINAL] reader thread exited")
 
         read_thread = threading.Thread(target=reader, daemon=True)
         read_thread.start()
 
-        # 发送初始回车以触发 prompt
-        time.sleep(0.3)
-        channel.send("\r")
-        time.sleep(0.3)
-        channel.send("clear\r")
-        time.sleep(0.2)
-        if initial_path and initial_path != '/':
-            channel.send(f"cd {initial_path}\r")
-            time.sleep(0.2)
+        # 等待 shell 就绪并触发 prompt
+        time.sleep(0.5)
+        try:
+            channel.send("\r")
+            time.sleep(0.3)
+        except Exception as e:
+            print(f"[TERMINAL] send error: {e}")
 
         await websocket.send_json({"type": "ready"})
         print("[TERMINAL] Ready sent")
@@ -100,15 +114,21 @@ async def terminal_websocket(websocket: WebSocket):
         print(f"[TERMINAL] error: {e}")
         try:
             if not closed:
+                await websocket.send_json({
+                    "type": "output",
+                    "data": f"\r\n[终端错误] {e}\r\n"
+                })
                 await websocket.send_json({"type": "error", "message": str(e)})
         except:
             pass
     finally:
         closed = True
         if channel and not channel.closed:
-            channel.close()
-        if not closed:
             try:
-                await websocket.close()
+                channel.close()
             except:
                 pass
+        try:
+            await websocket.close()
+        except:
+            pass

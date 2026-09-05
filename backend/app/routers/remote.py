@@ -70,22 +70,32 @@ class BatchUploadRequest(BaseModel):
     files: list[dict]  # [{"remote_path": "...", "cache_path": "..."}]
 
 
+class MkdirRequest(BaseModel):
+    session_id: str
+    path: str  # 要创建的完整远程路径（含不存在的中级目录）
+
+
 # ========== 连接管理 ==========
 @router.post("/connect")
 async def connect_ssh(req: ConnectRequest):
-    to_delete = []
-    for sid, session in ssh_sessions.items():
-        if (session.get("host") == req.host and
-                session.get("port") == req.port and
-                session.get("username") == req.username):
-            try:
-                session["sftp"].close()
-                session["ssh"].close()
-            except:
-                pass
-            to_delete.append(sid)
+    # 切换登录目标时，先关闭并清理所有既有 SSH 会话（含缓存），确保旧服务器连接被断开
+    to_delete = list(ssh_sessions.keys())
     for sid in to_delete:
+        try:
+            session = ssh_sessions[sid]
+            if session.get("sftp"):
+                session["sftp"].close()
+            if session.get("ssh"):
+                session["ssh"].close()
+        except Exception:
+            pass
+        try:
+            clear_cache(sid)
+        except Exception:
+            pass
         del ssh_sessions[sid]
+    if to_delete:
+        print(f"[REMOTE] 已断开旧的 {len(to_delete)} 个会话")
 
     session_id = str(uuid.uuid4())
     client = paramiko.SSHClient()
@@ -255,6 +265,55 @@ async def remote_batch_download(req: BatchDownloadRequest):
         except Exception as e:
             results.append({"path": remote_path, "status": "error", "message": str(e)})
     return {"results": results}
+
+
+def normalize_remote_path(raw: str, home: str = '/') -> str:
+    """把用户输入的远程路径规范成绝对路径。
+
+    关键点：绝对路径必须保留开头的 '/'。以前 current 从 '' 开始拼接，
+    '/home/u/new' 会被当成相对路径 'home/u/new' 创建到登录目录下（界面上看不到），
+    这就是「FTP 新建文件夹不成功」的根因。
+    """
+    p = (raw or '').replace('\\', '/').strip()
+    if not home or not home.startswith('/'):
+        home = '/' + (home or '')
+    home = home.rstrip('/') or '/'
+    if p.startswith('~'):
+        p = home + p[1:]
+    if not p.startswith('/'):
+        p = home + '/' + p
+    p = posixpath.normpath(p)                      # 去掉末尾 '/'、'/./' 等
+    return p or home
+
+
+@router.post("/mkdir")
+async def remote_mkdir(req: MkdirRequest):
+    """在远程创建目录（自动创建中间目录）"""
+    if req.session_id not in ssh_sessions:
+        raise HTTPException(status_code=404, detail="会话不存在或已过期")
+    sftp = ssh_sessions[req.session_id]["sftp"]
+
+    if not (req.path or '').strip():
+        raise HTTPException(status_code=400, detail="路径不能为空")
+
+    try:
+        home = sftp.normalize('.')
+    except Exception:
+        home = '/'
+
+    target = normalize_remote_path(req.path, home)
+    parts = [p for p in target.split('/') if p and p != '.']
+    current = ''
+    try:
+        for part in parts:
+            current = current + '/' + part
+            try:
+                sftp.stat(current)
+            except FileNotFoundError:
+                sftp.mkdir(current)
+        return {"path": current or '/', "created": current or '/'}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"创建目录失败 {current}: {e}")
 
 
 # ========== 批量上传 ==========

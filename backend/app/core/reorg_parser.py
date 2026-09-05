@@ -17,11 +17,13 @@ def parse_fcclasses_output(file_path):
     # ===== 1. 提取频率 =====
     frequencies = []
 
-    # 方法1：查找 "FREQUENCIES (cm-1)" 部分
+    # 方法1：查找 "FREQUENCIES (cm-1)" 部分。
+    # 注意：FCclasses 输出里还有 "Redundant Frequencies (cm-1)"（数值≈0），
+    # 必须要求行首就是 FREQUENCIES，避免误抓冗余表。
     freq_section = re.search(
-        r'FREQUENCIES\s*\(cm-1\)\s*\n(.*?)(?=\n\s*\n\s*\n|\n\s*={2,}|Z)',
+        r'^[ \t]*FREQUENCIES[ \t]*\(cm-1\)[^\r\n]*\n(.*?)(?=\n\s*\n\s*\n|\n\s*={2,}|\n[ \t]*Z)',
         content,
-        re.DOTALL | re.IGNORECASE
+        re.DOTALL | re.IGNORECASE | re.MULTILINE
     )
     if freq_section:
         section_text = freq_section.group(1)
@@ -38,12 +40,12 @@ def parse_fcclasses_output(file_path):
                 if freq > 0:
                     frequencies.append(freq)
 
-    # 方法2：如果方法1失败，尝试逐行扫描
+    # 方法2：如果方法1失败，尝试逐行扫描（同样要求行首为 FREQUENCIES）
     if not frequencies:
         lines = content.split('\n')
         in_freq = False
         for line in lines:
-            if re.search(r'FREQUENCIES\s*\(cm-1\)', line, re.IGNORECASE):
+            if re.match(r'^[ \t]*FREQUENCIES[ \t]*\(cm-1\)', line, re.IGNORECASE):
                 in_freq = True
                 continue
             if in_freq:
