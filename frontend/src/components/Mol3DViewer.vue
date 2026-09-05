@@ -5,6 +5,7 @@
 <script>
 import { ref, onMounted, onBeforeUnmount, watch } from 'vue'
 import $3Dmol from '3dmol'
+import { cssVar } from '@/theme/theme'
 
 export default {
   name: 'Mol3DViewer',
@@ -29,13 +30,21 @@ export default {
     const initViewer = () => {
       if (!viewerContainer.value) return
       viewer = $3Dmol.createViewer(viewerContainer.value, {
-        backgroundColor: 'white',
+        backgroundColor: cssVar('--c-editor'),
         width: '100%',
         height: '100%'
       })
       viewer.setStyle({}, { stick: { radius: 0.15 } })
       viewer.zoomTo()
       viewer.render()
+    }
+
+    // 主题切换时同步 3D 背景
+    const onThemeChange = () => {
+      if (viewer && typeof viewer.setBackgroundColor === 'function') {
+        viewer.setBackgroundColor(cssVar('--c-editor'))
+        viewer.render()
+      }
     }
 
     const updateStructure = () => {
@@ -67,6 +76,7 @@ export default {
 
     onMounted(() => {
       initViewer()
+      window.addEventListener('mls-theme-change', onThemeChange)
     })
 
     watch(() => props.coords, () => {
@@ -74,6 +84,7 @@ export default {
     }, { deep: true })
 
     onBeforeUnmount(() => {
+      window.removeEventListener('mls-theme-change', onThemeChange)
       if (viewer) {
         viewer.removeAllModels()
         viewer = null

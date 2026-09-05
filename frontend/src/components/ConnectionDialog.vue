@@ -1,6 +1,6 @@
 <template>
   <div v-if="visible" class="modal-overlay" @click.self="close">
-    <div class="modal-content" @mousedown.stop @click.stop style="width:520px;background:white;border-radius:8px;padding:20px;box-shadow:0 4px 20px rgba(0,0,0,0.3);">
+    <div class="modal-content" @mousedown.stop @click.stop style="width:520px;background:var(--c-elev);border-radius:8px;padding:20px;box-shadow:0 4px 20px rgba(0,0,0,0.35);color:var(--c-text);">
       <h3 style="margin-top:0;">连接服务器</h3>
 
       <!-- 预设管理 -->
@@ -28,8 +28,15 @@
 
       <!-- 按钮 -->
       <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:16px;">
-        <button class="btn btn-primary" @click="doConnect" :disabled="connecting">连接</button>
-        <button class="btn btn-default" @click="close">取消</button>
+        <button class="btn btn-primary" @click="doConnect" :disabled="connecting">
+          {{ connecting ? (remoteStore.backendRetrying ? '连接中(等待后端启动)…' : '连接中…') : '连接' }}
+        </button>
+        <button class="btn btn-default" @click="close" :disabled="connecting">取消</button>
+      </div>
+
+      <!-- 后端未就绪 / 自动重试提示 -->
+      <div v-if="connecting && remoteStore.backendRetrying" style="color:#d46b08;margin-top:8px;font-size:13px;">
+         {{ remoteStore.error }}
       </div>
 
       <div v-if="errorMessage" style="color:#ff4d4f;margin-top:8px;">{{ errorMessage }}</div>
@@ -43,6 +50,10 @@ import { useRemoteStore } from '@/stores/remote'
 export default {
   props: { visible: Boolean },
   emits: ['update:visible', 'connected'],
+  setup() {
+    const remoteStore = useRemoteStore()
+    return { remoteStore }
+  },
   data() {
     return {
       localHost: '',
@@ -214,11 +225,16 @@ export default {
   z-index: 9999;
 }
 .modal-content {
-  background: white;
+  background: var(--c-elev);
+  border: 1px solid var(--c-border);
   border-radius: 8px;
   max-width: 90vw;
   max-height: 80vh;
   padding: 20px;
   box-shadow: 0 4px 20px rgba(0,0,0,0.3);
+  color: var(--c-text);
+}
+.modal-content label {
+  color: var(--c-text-2);
 }
 </style>

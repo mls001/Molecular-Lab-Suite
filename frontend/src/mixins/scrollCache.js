@@ -47,7 +47,7 @@ export default {
       }
       this.$nextTick(() => {
         container.scrollTop = this.savedScrollTop
-        console.log('[scrollCache] ✅ 尝试恢复滚动位置:', this.savedScrollTop)
+        console.log('[scrollCache]  尝试恢复滚动位置:', this.savedScrollTop)
         // 检查恢复效果
         setTimeout(() => {
           console.log('[scrollCache] 恢复后实际 scrollTop:', container.scrollTop)

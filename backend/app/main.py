@@ -9,8 +9,8 @@ from app.routers import reorg_extract
 from app.routers import remote
 from app.routers import preset
 from app.routers import terminal
-
-# 注册终端 WebSocket 路由
+from app.routers import local
+from app.routers import soc
 
 app = FastAPI(title="Molecular Lab Suite, MLS V26.9", version="26.9")
 
@@ -22,6 +22,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# 挂载路由
 app.include_router(websocket.router, prefix="/ws")
 app.include_router(gjf.router, prefix="/ws", tags=["GJF Modify"])
 app.include_router(gjf.router, prefix="/api/gjf", tags=["GJF Modify"])
@@ -34,6 +35,8 @@ app.include_router(preset.router)
 app.include_router(terminal.router, prefix="/ws", tags=["终端"])
 app.include_router(remote.router, prefix="/api/remote")
 app.include_router(remote.router, prefix="/api/remote/cache")
+app.include_router(local.router)
+app.include_router(soc.router)
 
 @app.get("/api/health")
 async def health():

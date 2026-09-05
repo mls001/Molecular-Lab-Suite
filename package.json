@@ -11,21 +11,26 @@
     "build:frontend": "cd frontend && npm run build",
     "build:electron": "npm run build:frontend && electron-builder",
     "pack": "npm run build:frontend && electron-builder --dir",
-    "dist": "npm run build:frontend && electron-builder"
+    "dist": "npm run build:frontend && electron-builder",
+    "postinstall": "electron-builder install-app-deps",
+    "clean": "rimraf build dist_electron frontend/dist"
   },
   "devDependencies": {
     "concurrently": "^8.2.2",
     "electron": "^28.1.0",
-    "electron-builder": "^24.9.1"
+    "electron-builder": "^24.9.1",
+    "rimraf": "^5.0.5"
   },
   "build": {
     "appId": "com.mls.desktop",
-    "productName": "Molecular Lab Suite, MLS V26.9",
+    "productName": "Molecular Lab Suite",
     "directories": {
-      "output": "build"
+      "output": "dist_electron"
     },
     "files": [
-      "electron/**/*"
+      "electron/**/*",
+      "node_modules/electron-store/**/*",
+      "node_modules/keytar/**/*"
     ],
     "extraResources": [
       {
@@ -36,8 +41,12 @@
         ]
       },
       {
-        "from": "backend/dist/mls-backend.exe",
-        "to": "mls-backend.exe"
+        "from": "backend",
+        "to": "backend",
+        "filter": [
+          "dist/**",
+          "!**/__pycache__/**"
+        ]
       },
       {
         "from": "config.json",
@@ -46,16 +55,30 @@
     ],
     "win": {
       "target": "nsis",
-      "icon": "md-o.ico"
+      "icon": "build/icon.ico"
     },
     "nsis": {
       "oneClick": false,
-      "allowToChangeInstallationDirectory": true
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "Molecular Lab Suite"
+    },
+    "mac": {
+      "target": "dmg",
+      "icon": "build/icon.icns",
+      "category": "public.app-category.science"
+    },
+    "linux": {
+      "target": "AppImage",
+      "icon": "build/icon.png",
+      "category": "Science"
     }
   },
   "dependencies": {
     "echarts": "^6.1.0",
-    "electron-store": "^11.0.2",
+    "electron-store": "^8.2.0",
+    "keytar": "^7.9.0",
     "xlsx": "^0.18.5"
   }
 }

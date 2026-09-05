@@ -1,159 +1,181 @@
 <template>
+  <!-- PyCharm 风格三栏：左=文件列表 / 中=编辑窗口 / 右=参数调节；下方日志与终端保持不动 -->
   <div class="flex-col h-full" style="gap:8px;overflow:hidden;">
-    <h2 style="margin:0;">批量修改 GJF 参数</h2>
-    <p style="color:#666;margin:0;font-size:14px;">选择文件夹，批量修改或单独预览/编辑 .gjf 文件</p>
 
-    <!-- 控制栏（含模式切换） -->
-    <div class="flex-center flex-shrink-0" style="gap:12px;flex-wrap:wrap;background:#f9f9f9;padding:6px 14px;border-radius:6px;">
-      <!-- 模式切换 -->
-      <div style="display:flex;align-items:center;gap:6px;">
-        <span class="label">模式</span>
-        <button class="btn" :class="mode === 'local' ? 'btn-primary' : 'btn-default'" @click="switchMode('local')" style="height:28px;padding:0 12px;font-size:12px;">本地</button>
-        <button class="btn" :class="mode === 'remote' ? 'btn-primary' : 'btn-default'" @click="switchMode('remote')" style="height:28px;padding:0 12px;font-size:12px;" :disabled="!remoteConnected">远程</button>
-        <span v-if="mode === 'remote' && remoteConnected" style="color:#52c41a;font-size:12px;">已连接 {{ remoteStore.displayName }}</span>
-        <span v-else-if="mode === 'remote' && !remoteConnected" style="color:#ff4d4f;font-size:12px;">未连接</span>
-      </div>
+    <div class="flex flex-1 min-h-0" style="gap:10px;">
 
-      <button class="btn btn-primary h-lg" @click="selectInputFolder" v-if="mode === 'local'">选择输入文件夹</button>
-      <button class="btn btn-primary h-lg" @click="openRemoteBrowser('input')" v-else :disabled="!remoteConnected">远程输入目录</button>
-
-      <span v-if="inputFolder" style="color:#1890ff;font-size:13px;">{{ inputFolder }}</span>
-      <span v-else style="color:#999;font-size:13px;">未选择</span>
-
-      <button class="btn btn-success h-lg" @click="selectOutputFolder" v-if="mode === 'local'">选择输出文件夹</button>
-      <button class="btn btn-success h-lg" @click="openRemoteBrowser('output')" v-else :disabled="!remoteConnected">远程输出目录</button>
-      <span v-if="outputFolder" style="color:#52c41a;font-size:13px;">{{ outputFolder }}</span>
-      <span v-else style="color:#999;font-size:13px;">未选择</span>
-
-      <button class="btn btn-warning h-lg" @click="startBatchModify" :disabled="running || !inputFolder || !outputFolder">
-        {{ running ? '处理中...' : '批量修改' }}
-      </button>
-      <label class="flex-center" style="font-size:13px;color:#666;gap:4px;height:32px;">
-        <input type="checkbox" v-model="selectAll" @change="toggleAll" />
-        全选
-      </label>
-    </div>
-
-    <!-- 参数预设 -->
-    <div class="flex-center flex-shrink-0" style="gap:8px;background:#f9f9f9;padding:6px 14px;border-radius:6px;flex-wrap:wrap;">
-      <span class="label">前缀</span>
-      <input class="control h-lg w-sm" v-model="prefix" />
-
-      <span class="label">预设</span>
-      <select class="control h-lg" style="width:140px;" v-model="selectedPreset" @change="applyPreset">
-        <option v-for="(conf, name) in presetResources" :key="name" :value="name">{{ name }}</option>
-      </select>
-
-      <span class="label">内存</span>
-      <input class="control h-lg w-sm" v-model="mem" />
-
-      <span class="label">核心数</span>
-      <input class="control h-lg w-sm" v-model="nproc" />
-
-      <span class="label">计算模式</span>
-      <input class="control h-lg" style="width:180px;" v-model="calcMode" list="calcModePresets" />
-      <datalist id="calcModePresets">
-        <option v-for="preset in calcModePresets" :key="preset" :value="preset" />
-      </datalist>
-
-      <span class="label">泛函</span>
-      <input class="control h-lg w-md" v-model="functional" list="functionalPresets" placeholder="如 b3lyp" />
-      <datalist id="functionalPresets">
-        <option v-for="preset in functionalPresets" :key="preset" :value="preset" />
-      </datalist>
-
-      <span class="label" style="font-weight:400;">/</span>
-
-      <span class="label">基组</span>
-      <input class="control h-lg w-lg" v-model="basis" list="basisPresets" placeholder="如 6-31g(d,p)" />
-      <datalist id="basisPresets">
-        <option v-for="preset in basisPresets" :key="preset" :value="preset" />
-      </datalist>
-
-      <span class="label">预览</span>
-      <input class="control h-lg preview" style="width:340px;" :value="fullKeyword" readonly />
-
-      <span class="label">电荷</span>
-      <input class="control h-lg w-xs" v-model="charge" />
-
-      <span class="label">自旋</span>
-      <input class="control h-lg w-xs" v-model="mult" />
-
-      <button class="btn btn-primary h-lg" @click="applyParamsAndSave">保存并应用</button>
-    </div>
-
-    <!-- 主区域 -->
-    <div class="flex flex-1 min-h-0" style="gap:16px;border:1px solid #e8e8e8;border-radius:8px;overflow:hidden;">
-      <!-- 左侧文件列表 -->
-      <div style="width:220px;background:#fafafa;border-right:1px solid #e8e8e8;overflow-y:auto;padding:8px 0;flex-shrink:0;">
-        <div v-if="!fileList.length" style="color:#999;text-align:center;padding:20px;font-size:13px;">
-          暂无 .gjf 文件
+      <!-- ===== 左侧：文件列表 ===== -->
+      <aside class="flex-col" style="width:250px;flex-shrink:0;background:var(--c-panel);border:1px solid var(--c-border);border-radius:var(--r-lg);overflow:hidden;min-height:0;">
+        <div class="flex-center" style="justify-content:space-between;padding:6px 10px;border-bottom:1px solid var(--c-border);flex-shrink:0;background:var(--c-bar);">
+          <span style="font-weight:600;font-size:13px;">文件列表</span>
+          <div class="flex-center" style="gap:6px;">
+            <label class="flex-center" style="gap:4px;font-size:12px;color:var(--c-text-2);cursor:pointer;">
+              <input type="checkbox" v-model="selectAll" @change="toggleAll" /> 全选
+            </label>
+            <button class="btn" style="height:22px;padding:0 8px;font-size:12px;" @click="refreshList" :disabled="!inputFolder">刷新</button>
+          </div>
         </div>
-        <div
-          v-for="(file, idx) in fileList"
-          :key="idx"
-          @click="selectFile(idx)"
-          @dblclick="startRename(idx)"
-          :style="{
-            padding: '4px 8px',
-            cursor: 'pointer',
-            background: selectedIndex === idx ? '#e6f7ff' : 'transparent',
-            borderLeft: selectedIndex === idx ? '3px solid #1890ff' : '3px solid transparent',
-            fontSize: '13px',
-            display: 'flex',
-            alignItems: 'center',
-            gap: '6px'
-          }"
-          @mouseenter="e=>e.target.style.background='#f0f0f0'"
-          @mouseleave="e=>{if(selectedIndex!==idx) e.target.style.background='transparent'}"
-        >
-          <input type="checkbox" v-model="checkedFiles" :value="file" @click.stop />
-          <span v-if="editingIndex === idx" style="flex:1;">
-            <input
-              v-model="editingName"
-              @blur="finishRename"
-              @keydown.enter="finishRename"
-              @keydown.esc="cancelRename"
-              @click.stop
-              class="control h-lg"
-              style="width:100%;border-color:#1890ff;"
-              ref="renameInput"
-            />
-          </span>
-          <span v-else style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">
-            {{ file }}
-          </span>
+        <div style="flex:1;overflow-y:auto;padding:4px 0;min-height:0;">
+          <div v-if="!fileList.length" style="color:var(--c-text-3);text-align:center;padding:18px;font-size:13px;">
+            暂无 .gjf 文件<br><span style="font-size:12px;">请先在右侧选择输入目录</span>
+          </div>
+          <div
+            v-for="(file, idx) in fileList"
+            :key="idx"
+            @click="selectFile(idx)"
+            @dblclick="startRename(idx)"
+            :style="{
+              padding: '4px 10px',
+              cursor: 'pointer',
+              background: selectedIndex === idx ? 'var(--c-hl-a)' : 'transparent',
+              borderLeft: selectedIndex === idx ? '3px solid var(--c-accent)' : '3px solid transparent',
+              fontSize: '13px',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '6px',
+              color: 'var(--c-text)'
+            }"
+            @mouseenter="e=>e.target.style.background=selectedIndex===idx ? 'var(--c-hl-a)' : 'var(--c-hover)'"
+            @mouseleave="e=>{ if(selectedIndex!==idx) e.target.style.background='transparent' }"
+          >
+            <input type="checkbox" v-model="checkedFiles" :value="file" @click.stop />
+            <span v-if="editingIndex === idx" style="flex:1;">
+              <input
+                v-model="editingName"
+                @blur="finishRename"
+                @keydown.enter="finishRename"
+                @keydown.esc="cancelRename"
+                @click.stop
+                class="control"
+                style="width:100%;height:24px;font-size:12px;border-color:var(--c-accent);"
+                ref="renameInput"
+              />
+            </span>
+            <span v-else style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">{{ file }}</span>
+          </div>
         </div>
-      </div>
+      </aside>
 
-      <!-- 右侧编辑器 -->
-      <div class="flex-col flex-1 min-h-0" style="padding:12px;">
-        <div class="flex" style="justify-content:space-between;align-items:center;margin-bottom:8px;flex-shrink:0;">
-          <span style="font-size:13px;color:#888;">
-            {{ currentFile ? currentFile : '未选择文件' }}
-            <span v-if="mode === 'remote'" style="color:#1890ff;font-size:12px;margin-left:8px;">(远程)</span>
-          </span>
-          <div class="flex" style="gap:8px;">
-            <button class="btn btn-success h-lg" @click="saveCurrentFile" :disabled="!currentFile || saving">
+      <!-- ===== 中间：编辑窗口 ===== -->
+      <section class="flex-col" style="flex:1;min-width:0;min-height:0;border:1px solid var(--c-border);border-radius:var(--r-lg);overflow:hidden;background:var(--c-main);">
+        <div class="flex" style="justify-content:space-between;align-items:center;gap:8px;padding:6px 12px;border-bottom:1px solid var(--c-border);flex-shrink:0;background:var(--c-bar);">
+          <div class="flex" style="gap:10px;align-items:center;min-width:0;flex-wrap:wrap;">
+            <span style="font-weight:600;font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">{{ currentFile ? currentFile : '未选择文件' }}</span>
+            <span v-if="mode === 'remote'" style="color:var(--c-accent);font-size:12px;">(远程)</span>
+          </div>
+          <div class="flex" style="gap:8px;align-items:center;flex-shrink:0;">
+            <button class="btn btn-success" style="height:26px;" @click="saveCurrentFile" :disabled="!currentFile || saving">
               {{ saving ? '保存中...' : '保存' }}
             </button>
-            <button class="btn btn-warning h-lg" @click="refreshList" :disabled="!currentFile">
+            <button class="btn" style="height:26px;" @click="refreshList" :disabled="!currentFile">
               刷新列表
             </button>
           </div>
         </div>
+
+        <!-- 最终参数预览行：与中间窗口同宽，置于编辑区上方 -->
+        <div class="flex-center" style="gap:8px;padding:6px 12px;flex-shrink:0;border-bottom:1px solid var(--c-border-soft);background:var(--c-panel);flex-wrap:wrap;">
+          <span class="label" style="white-space:nowrap;">最终参数预览</span>
+          <input class="control preview" style="flex:1;min-width:180px;height:28px;" :value="fullKeyword" readonly />
+          <span class="label" style="white-space:nowrap;">电荷</span>
+          <input class="control" style="width:56px;height:28px;" v-model="charge" />
+          <span class="label" style="white-space:nowrap;">自旋</span>
+          <input class="control" style="width:56px;height:28px;" v-model="mult" />
+        </div>
+
         <textarea
           v-model="currentContent"
           :disabled="!currentFile"
           class="control"
-          style="flex:1;width:100%;padding:8px;font-family:monospace;font-size:13px;resize:none;background:white;"
+          style="flex:1;width:100%;border:none;border-radius:0;padding:10px;font-family:var(--font-mono);font-size:13px;line-height:1.5;resize:none;background:var(--c-editor);color:var(--c-code);"
           spellcheck="false"
         ></textarea>
-      </div>
+      </section>
+
+      <!-- ===== 右侧：参数调节 ===== -->
+      <aside class="flex-col" style="width:300px;flex-shrink:0;background:var(--c-main);border:1px solid var(--c-border);border-radius:var(--r-lg);overflow-y:auto;padding:10px 12px;gap:10px;min-height:0;">
+        <div class="flex-center" style="justify-content:space-between;">
+          <span class="label">工作模式</span>
+          <div class="flex-center" style="gap:6px;">
+            <button class="btn" :class="mode === 'local' ? 'btn-primary' : 'btn-default'" style="height:24px;padding:0 10px;font-size:12px;" @click="switchMode('local')">本地</button>
+            <button class="btn" :class="mode === 'remote' ? 'btn-primary' : 'btn-default'" style="height:24px;padding:0 10px;font-size:12px;" @click="switchMode('remote')" :disabled="!remoteConnected">远程</button>
+          </div>
+        </div>
+        <div v-if="mode === 'remote'" style="font-size:12px;color:var(--c-text-2);">
+          {{ remoteConnected ? `已连接 ${remoteStore.displayName}` : '未连接（请先通过顶部工具栏连接服务器）' }}
+        </div>
+
+        <!-- 目录 -->
+        <div class="flex-col" style="gap:4px;border-top:1px solid var(--c-border-soft);padding-top:10px;">
+          <div class="flex-center" style="justify-content:space-between;">
+            <span class="label">输入目录</span>
+            <button class="btn" style="height:24px;padding:0 10px;font-size:12px;" @click="mode==='local' ? selectInputFolder() : openRemoteBrowser('input')" :disabled="mode==='remote' && !remoteConnected">选择…</button>
+          </div>
+          <div style="font-size:12px;color:var(--c-text-2);word-break:break-all;min-height:16px;">{{ inputFolder || '未选择' }}</div>
+          <div class="flex-center" style="justify-content:space-between;">
+            <span class="label">输出目录</span>
+            <button class="btn" style="height:24px;padding:0 10px;font-size:12px;" @click="mode==='local' ? selectOutputFolder() : openRemoteBrowser('output')" :disabled="mode==='remote' && !remoteConnected">选择…</button>
+          </div>
+          <div style="font-size:12px;color:var(--c-text-2);word-break:break-all;min-height:16px;">{{ outputFolder || '未选择' }}</div>
+        </div>
+
+        <!-- 参数 -->
+        <div class="flex-col" style="gap:6px;border-top:1px solid var(--c-border-soft);padding-top:10px;">
+          <div class="flex-center" style="gap:8px;justify-content:space-between;">
+            <span class="label">前缀</span>
+            <input class="control" style="width:150px;height:28px;" v-model="prefix" placeholder="如 opt_" />
+          </div>
+          <div class="flex-center" style="gap:8px;justify-content:space-between;">
+            <span class="label">预设</span>
+            <select class="control" style="width:150px;height:28px;" v-model="selectedPreset" @change="applyPreset">
+              <option v-for="(conf, name) in presetResources" :key="name" :value="name">{{ name }}</option>
+            </select>
+          </div>
+          <div class="flex-center" style="gap:8px;justify-content:space-between;">
+            <span class="label">内存</span>
+            <input class="control" style="width:150px;height:28px;" v-model="mem" placeholder="如 20GB" />
+          </div>
+          <div class="flex-center" style="gap:8px;justify-content:space-between;">
+            <span class="label">核心数</span>
+            <input class="control" style="width:150px;height:28px;" v-model="nproc" placeholder="如 8" />
+          </div>
+          <div class="flex-col" style="gap:4px;">
+            <span class="label">计算模式</span>
+            <input class="control" style="width:100%;height:28px;" v-model="calcMode" list="calcModePresets" />
+            <datalist id="calcModePresets">
+              <option v-for="preset in calcModePresets" :key="preset" :value="preset" />
+            </datalist>
+          </div>
+          <div class="flex-col" style="gap:4px;">
+            <span class="label">泛函 / 基组</span>
+            <div class="flex" style="gap:6px;">
+              <input class="control" style="flex:1;min-width:0;height:28px;" v-model="functional" list="functionalPresets" placeholder="如 b3lyp" />
+              <input class="control" style="flex:1;min-width:0;height:28px;" v-model="basis" list="basisPresets" placeholder="如 6-31g(d,p)" />
+            </div>
+            <datalist id="functionalPresets">
+              <option v-for="preset in functionalPresets" :key="preset" :value="preset" />
+            </datalist>
+            <datalist id="basisPresets">
+              <option v-for="preset in basisPresets" :key="preset" :value="preset" />
+            </datalist>
+          </div>
+        </div>
+
+        <!-- 操作 -->
+        <div class="flex-col" style="gap:8px;border-top:1px solid var(--c-border-soft);padding-top:10px;">
+          <button class="btn btn-primary h-lg" @click="applyParamsAndSave" :disabled="!currentFile">保存并应用参数至当前文件</button>
+          <button class="btn btn-success h-lg" @click="startBatchModify" :disabled="running || !inputFolder || !outputFolder || !checkedFiles.length">
+            {{ running ? '处理中...' : `批量修改（${checkedFiles.length}）` }}
+          </button>
+          <div style="font-size:12px;color:var(--c-text-3);line-height:1.5;">
+            在左侧勾选文件后可批量修改；修改结果实时写入输入目录（输入=输出时自动刷新展示）。
+          </div>
+        </div>
+      </aside>
     </div>
 
-    <!-- 日志区域 -->
-    <LogViewer :lines="logLines" :key="logKey" />
+    <!-- 日志区域（保持在底部、终端之上，与其他页面一致） -->
+    <LogViewer :lines="logLines" />
 
     <!-- 远程文件浏览器组件 -->
     <RemoteFileBrowser
@@ -172,6 +194,7 @@ import { useRemoteStore } from '@/stores/remote'
 import { storeToRefs } from 'pinia'
 import LogViewer from '@/components/LogViewer.vue'
 import RemoteFileBrowser from '@/components/RemoteFileBrowser.vue'
+import { pickDirectory } from '@/api/dialog'
 const posixpath = {
   join: (...segments) => segments.filter(s => s && s !== '').join('/').replace(/\/+/g, '/')
 };
@@ -186,8 +209,11 @@ export default {
   data() {
     return {
       mode: 'local',
-      inputFolder: '',
-      outputFolder: '',
+      // 本地/远程目录分开记忆，避免切换模式时相互污染
+      localInputFolder: '',
+      localOutputFolder: '',
+      remoteInputFolder: '',
+      remoteOutputFolder: '',
       prefix: '',
       fileList: [],
       selectedIndex: -1,
@@ -237,6 +263,25 @@ export default {
     }
   },
   computed: {
+    // 目录路径代理：按当前模式读写各自的记忆字段（本地/远程互不串用）
+    inputFolder: {
+      get() {
+        return this.mode === 'local' ? this.localInputFolder : this.remoteInputFolder
+      },
+      set(v) {
+        if (this.mode === 'local') this.localInputFolder = v
+        else this.remoteInputFolder = v
+      }
+    },
+    outputFolder: {
+      get() {
+        return this.mode === 'local' ? this.localOutputFolder : this.remoteOutputFolder
+      },
+      set(v) {
+        if (this.mode === 'local') this.localOutputFolder = v
+        else this.remoteOutputFolder = v
+      }
+    },
     fullKeyword() {
       const mode = this.calcMode.trim()
       const func = this.functional.trim()
@@ -385,16 +430,21 @@ export default {
       this.selectLocalFolder('outputFolder', '选择输出文件夹')
     },
     async selectLocalFolder(variable, title) {
-      const path = await window.electronAPI.selectDirectory({ title })
-      if (path) {
-        this[variable] = path
-        this.addLog(`选择目录: ${title}: ${path}`, '#87d2ff')
-        if (variable === 'inputFolder') {
-          this.checkedFiles = []
-          this.selectAll = false
-          if (this.mode === 'local') this.loadFileListLocal()
-          else this.loadFileListRemote()
-        }
+      let path
+      try {
+        path = await pickDirectory(title)
+      } catch (e) {
+        this.addLog(`选择目录失败: ${e.message}`, '#ff6b6b')
+        return
+      }
+      if (!path) return // 用户取消
+      this[variable] = path
+      this.addLog(`选择目录: ${title}: ${path}`, '#87d2ff')
+      if (variable === 'inputFolder') {
+        this.checkedFiles = []
+        this.selectAll = false
+        if (this.mode === 'local') this.loadFileListLocal()
+        else this.loadFileListRemote()
       }
     },
 
@@ -519,6 +569,16 @@ export default {
       }
     },
 
+    // ===== 刷新列表并保持当前选中文件（保存/应用后调用，让用户看到磁盘上的最新内容） =====
+    async refreshListKeepSelection() {
+      const target = this.currentFile
+      await this.refreshList()
+      if (target) {
+        const idx = this.fileList.indexOf(target)
+        if (idx >= 0) this.selectFile(idx)
+      }
+    },
+
     // ===== 选中文件 =====
     selectFile(idx) {
       if (idx < 0 || idx >= this.fileList.length) return
@@ -615,6 +675,7 @@ export default {
     async saveFileLocal() {
       const fullPath = `${this.inputFolder}\\${this.currentFile}`
       this.saving = true
+      let ok = false
       try {
         const response = await fetch(`${this.backendUrl}/api/gjf/save`, {
           method: 'POST',
@@ -623,6 +684,7 @@ export default {
         })
         const data = await response.json()
         if (response.ok) {
+          ok = true
           this.addLog(`保存成功: ${this.currentFile} (本地)`, '#7cfc00')
         } else {
           this.addLog(`保存失败: ${data.detail}`, '#ff6b6b')
@@ -631,10 +693,12 @@ export default {
         this.addLog(`保存失败: ${e.message}`, '#ff6b6b')
       }
       this.saving = false
+      return ok
     },
 
     async saveFileRemote() {
       this.saving = true
+      let ok = false
       try {
         const outputRemotePath = posixpath.join(this.inputFolder, this.currentFile)
         const uploadResp = await fetch(`${this.backendUrl}/api/remote/upload`, {
@@ -648,6 +712,7 @@ export default {
         })
         const uploadData = await uploadResp.json()
         if (uploadResp.ok) {
+          ok = true
           this.addLog(`上传成功: ${this.currentFile} (远程)`, '#7cfc00')
         } else {
           this.addLog(`上传失败: ${uploadData.detail}`, '#ff6b6b')
@@ -656,6 +721,7 @@ export default {
         this.addLog(`保存失败: ${e.message}`, '#ff6b6b')
       }
       this.saving = false
+      return ok
     },
 
     // ===== 重命名 =====
@@ -797,10 +863,16 @@ export default {
         return
       }
       this.currentContent = newContent
+      let saved = false
       if (this.mode === 'remote') {
-        await this.saveFileRemote()
+        saved = await this.saveFileRemote()
       } else {
-        await this.saveFileLocal()
+        saved = await this.saveFileLocal()
+      }
+      if (saved) {
+        // 保存成功后刷新一次列表（保持当前文件选中），让编辑区展示更新后的磁盘内容
+        await this.refreshListKeepSelection()
+        this.addLog('已刷新文件列表', '#87d2ff')
       }
     },
 
@@ -831,6 +903,15 @@ export default {
         await this.batchModifyLocal(keyword)
       }
       this.running = false
+
+      // 批量修改完成后自动刷新：输入与输出同目录时直接回读最新内容展示
+      const norm = (p) => (p || '').replace(/\\/g, '/').replace(/\/+$/, '')
+      if (this.inputFolder && norm(this.inputFolder) === norm(this.outputFolder)) {
+        await this.refreshListKeepSelection()
+        this.addLog('批量修改完成，已刷新文件列表', '#87d2ff')
+      } else {
+        this.addLog('批量修改完成，输出目录与输入目录不同，结果位于输出目录中', '#87d2ff')
+      }
     },
 
     async batchModifyLocal(keyword) {

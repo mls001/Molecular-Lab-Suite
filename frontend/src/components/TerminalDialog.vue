@@ -8,7 +8,7 @@
     <!-- 标题栏 -->
     <div class="terminal-header" @mousedown="startDrag">
       <span class="terminal-title">终端 - {{ store.displayName }}</span>
-      <button @click="close" class="terminal-close-btn">✕</button>
+      <button @click="close" class="terminal-close-btn" title="关闭终端">×</button>
     </div>
     <!-- 终端容器 -->
     <div ref="terminalContainer" class="terminal-body"></div>

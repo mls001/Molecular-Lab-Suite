@@ -1,8 +1,499 @@
-body {
+/* ==========================================================================
+   MLS 设计令牌与全局样式层（仿 PyCharm/IntelliJ 配色，科研风，低饱和）
+   分层：tokens → base → 组件系统(.control/.btn/...) → 布局工具 → 滚动条
+   所有颜色统一走 var(--c-*)，新组件应直接引用令牌以支持亮/暗双主题。
+   ========================================================================== */
+
+/* ---------- 1. 设计令牌 ---------- */
+:root {
+  color-scheme: light;
+
+  /* 表面 */
+  --c-app: #e8ebee;            /* 窗口最外层/顶栏底 */
+  --c-main: #ffffff;           /* 页面主背景 */
+  --c-panel: #f2f4f6;          /* 侧栏/表头/次级面板 */
+  --c-bar: #f6f7f8;            /* 工具条 */
+  --c-elev: #ffffff;           /* 浮层/卡片/编辑区上的内容 */
+  --c-editor: #ffffff;         /* 文本编辑器/文本框 */
+  --c-code: #24292e;           /* 编辑器文字 */
+  --c-hover: #e5e8ec;
+  --c-selected: #cfe0f3;       /* 选中行 */
+  --c-selected-text: #1d2a38;
+  --c-accent-soft: #e3edf7;
+  --c-hl-a: #dbe9f8;           /* 表格高亮行 A（HOMO/选中，蓝） */
+  --c-hl-b: #f6e6c8;           /* 表格高亮行 B（LUMO/琥珀） */
+  --c-homo: #3f6ea0;           /* HOMO（低饱和蓝） */
+  --c-homo-row: rgba(63, 110, 160, 0.15);
+  --c-lumo: #a34f45;           /* LUMO（低饱和红） */
+  --c-lumo-row: rgba(163, 79, 69, 0.15);
+
+  /* 边框 */
+  --c-border: #d4d9de;
+  --c-border-soft: #e3e7ea;
+
+  /* 文字 */
+  --c-text: #24282d;
+  --c-text-2: #5d6771;
+  --c-text-3: #8a929b;
+  --c-on-accent: #ffffff;
+
+  /* 强调/语义（统一在两主题下均保持可读） */
+  --c-accent: #3d74ad;          /* PyCharm 蓝（按钮填充/链接） */
+  --c-accent-hover: #2f6399;
+  --c-blue: #1c6db3;            /* 信息文字 */
+  --c-green: #3d8f43;           /* 成功文字/按钮 */
+  --c-warning: #b07a1a;
+  --c-danger: #c43a3a;
+  --c-link: #2b6aa8;
+
+  /* 字体 */
+  --font-ui: 'Segoe UI', 'Segoe UI Emoji', 'Microsoft YaHei UI', 'Microsoft YaHei', sans-serif;
+  --font-mono: 'Cascadia Code', 'Cascadia Mono', Consolas, 'Courier New', monospace;
+
+  /* 圆角 */
+  --r-sm: 3px;
+  --r-md: 5px;
+  --r-lg: 8px;
+}
+
+:root[data-theme='dark'] {
+  color-scheme: dark;
+
+  --c-app: #1e2022;
+  --c-main: #2b2d30;
+  --c-panel: #33363a;
+  --c-bar: #2e3135;
+  --c-elev: #3a3d42;
+  --c-editor: #1f2124;
+  --c-code: #c9cdd2;
+  --c-hover: #3f4348;
+  --c-selected: #214283;        /* Darcula 选中蓝 */
+  --c-selected-text: #e8f0fb;
+  --c-accent-soft: rgba(88, 157, 246, 0.16);
+  --c-hl-a: rgba(88, 157, 246, 0.18);
+  --c-hl-b: rgba(228, 162, 74, 0.16);
+  --c-homo: #7fb0dd;           /* HOMO（暗色低饱和蓝） */
+  --c-homo-row: rgba(127, 176, 221, 0.16);
+  --c-lumo: #e08a7f;           /* LUMO（暗色低饱和红） */
+  --c-lumo-row: rgba(224, 138, 127, 0.16);
+
+  --c-border: #4a4e53;
+  --c-border-soft: #3d4146;
+
+  --c-text: #c2c6cb;
+  --c-text-2: #9aa0a7;
+  --c-text-3: #73797f;
+  --c-on-accent: #ffffff;
+
+  --c-accent: #4f8cc9;
+  --c-accent-hover: #69a2d9;
+  --c-blue: #589df6;
+  --c-green: #6fc56f;
+  --c-warning: #e3a14f;
+  --c-danger: #e86868;
+  --c-link: #82b1ff;
+}
+
+/* ---------- 2. 基础 ---------- */
+* {
   margin: 0;
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
-  background: #f0f2f5;
+  padding: 0;
+  box-sizing: border-box;
+}
+html,
+body {
+  height: 100%;
+}
+body {
+  font-family: var(--font-ui);
+  background: var(--c-app);
+  color: var(--c-text);
+  font-size: 13px;
+  overflow: hidden;
+  -webkit-font-smoothing: antialiased;
 }
 #app {
   height: 100vh;
+}
+::selection {
+  background: var(--c-selected);
+  color: var(--c-selected-text);
+}
+
+/* 滚动条（桌面风格，明暗自适应） */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--c-border) transparent;
+}
+*::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+*::-webkit-scrollbar-thumb {
+  background: var(--c-border);
+  border-radius: 5px;
+  border: 2px solid transparent;
+  background-clip: content-box;
+}
+*::-webkit-scrollbar-thumb:hover {
+  background: var(--c-text-3);
+  background-clip: content-box;
+}
+*::-webkit-scrollbar-track,
+*::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+/* ---------- 3. 组件系统（供所有页面复用） ---------- */
+
+/* --- 输入控件 --- */
+.control {
+  border: 1px solid var(--c-border);
+  border-radius: var(--r-sm);
+  padding: 0 8px;
+  font-size: 13px;
+  box-sizing: border-box;
+  background: var(--c-editor);
+  color: var(--c-code);
+  outline: none;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+.control:focus {
+  border-color: var(--c-accent);
+  box-shadow: 0 0 0 2px var(--c-accent-soft);
+}
+.control:disabled {
+  background: var(--c-panel);
+  color: var(--c-text-3);
+  cursor: not-allowed;
+}
+.control::placeholder {
+  color: var(--c-text-3);
+}
+
+/* --- 高度等级 --- */
+.h-sm { height: 24px; }
+.h-md { height: 28px; }
+.h-lg { height: 32px; }
+
+/* --- 宽度等级 --- */
+.w-xs { width: 50px; }
+.w-sm { width: 70px; }
+.w-md { width: 100px; }
+.w-lg { width: 140px; }
+.w-xl { width: 200px; }
+.w-2xl { width: 260px; }
+.w-3xl { width: 360px; }
+.w-full { width: 100%; }
+
+/* --- 只读预览框 --- */
+.preview {
+  background: var(--c-panel);
+  color: var(--c-text-2);
+  cursor: default;
+}
+
+/* --- 标签 --- */
+.label {
+  font-weight: 600;
+  font-size: 13px;
+  color: var(--c-text);
+  white-space: nowrap;
+}
+
+/* --- 按钮（PyCharm 风格：统一中性底+细边框；仅 primary 用强调色填充，语义靠文字色表达） --- */
+.btn {
+  border: 1px solid var(--c-border);
+  border-radius: var(--r-sm);
+  font-size: 13px;
+  cursor: pointer;
+  box-sizing: border-box;
+  transition: background 0.15s, border-color 0.15s, color 0.15s, opacity 0.15s;
+  padding: 0 14px;
+  height: 28px;
+  line-height: 1;
+  background: var(--c-elev);
+  color: var(--c-text);
+}
+.btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.btn:hover:not(:disabled) {
+  background: var(--c-hover);
+}
+.btn-default {
+  background: var(--c-elev);
+  border-color: var(--c-border);
+  color: var(--c-text);
+}
+.btn-primary {
+  background: var(--c-accent);
+  color: var(--c-on-accent);
+  border-color: var(--c-accent);
+}
+.btn-primary:hover:not(:disabled) {
+  background: var(--c-accent-hover);
+  border-color: var(--c-accent-hover);
+}
+/* 语义按钮：结构与默认一致，仅文字色表达语义（绿色=保存/成功，橙色=警告，红色=危险） */
+.btn-success {
+  background: var(--c-elev);
+  border-color: var(--c-border);
+  color: var(--c-green);
+}
+.btn-success:hover:not(:disabled) {
+  background: var(--c-hover);
+  border-color: var(--c-green);
+}
+.btn-warning {
+  background: var(--c-elev);
+  border-color: var(--c-border);
+  color: var(--c-warning);
+}
+.btn-warning:hover:not(:disabled) {
+  background: var(--c-hover);
+  border-color: var(--c-warning);
+}
+.btn-danger {
+  background: var(--c-elev);
+  border-color: var(--c-border);
+  color: var(--c-danger);
+}
+.btn-danger:hover:not(:disabled) {
+  background: var(--c-hover);
+  border-color: var(--c-danger);
+}
+
+/* --- 选择框 --- */
+select.control {
+  appearance: auto;
+  padding-right: 24px;
+}
+
+/* --- 文本框 --- */
+textarea.control {
+  padding: 8px;
+  resize: vertical;
+  font-family: var(--font-mono);
+  line-height: 1.5;
+  background: var(--c-editor);
+  color: var(--c-code);
+}
+
+/* --- 未使用 .control 的原生输入控件兜底（保持与主题一致） --- */
+input[type='text'],
+input[type='password'],
+input[type='number'],
+input[type='search'],
+input:not([type]),
+select,
+textarea {
+  background: var(--c-editor);
+  color: var(--c-code);
+  border: 1px solid var(--c-border);
+  border-radius: var(--r-sm);
+}
+input[type='text']:focus,
+input[type='password']:focus,
+input[type='number']:focus,
+input:not([type]):focus,
+select:focus,
+textarea:focus {
+  outline: none;
+  border-color: var(--c-accent);
+}
+
+/* --- 链接/路由 --- */
+a {
+  color: var(--c-link);
+}
+
+/* ---------- 4. Flex / 布局工具类 ---------- */
+.flex { display: flex; }
+.flex-col { display: flex; flex-direction: column; }
+.flex-center { display: flex; align-items: center; }
+.flex-1 { flex: 1; }
+.flex-shrink-0 { flex-shrink: 0; }
+.min-h-0 { min-height: 0; }
+.h-full { height: 100%; }
+
+/* --- 间距 --- */
+.mr-1 { margin-right: 4px; }
+.mr-2 { margin-right: 8px; }
+.mr-3 { margin-right: 12px; }
+.ml-1 { margin-left: 4px; }
+.ml-2 { margin-left: 8px; }
+.ml-3 { margin-left: 12px; }
+.mt-1 { margin-top: 4px; }
+.mt-2 { margin-top: 8px; }
+.mb-1 { margin-bottom: 4px; }
+.mb-2 { margin-bottom: 8px; }
+.gap-1 { gap: 4px; }
+.gap-2 { gap: 8px; }
+.gap-3 { gap: 12px; }
+.gap-4 { gap: 16px; }
+
+/* --- 三栏 IDE 布局骨架（左文件列表 / 中内容窗口 / 右参数面板，供各功能页复用） --- */
+.ide {
+  display: flex;
+  flex: 1;
+  gap: 10px;
+  min-height: 0;
+}
+.ide-col {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+.ide-pane {
+  background: var(--c-main);
+  border: 1px solid var(--c-border);
+  border-radius: var(--r-lg);
+  overflow: hidden;
+}
+.ide-left {
+  width: 250px;
+  flex-shrink: 0;
+}
+.ide-right {
+  width: 300px;
+  flex-shrink: 0;
+}
+.ide-center {
+  flex: 1;
+  min-width: 0;
+}
+.ide-pane-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 6px 12px;
+  border-bottom: 1px solid var(--c-border);
+  background: var(--c-bar);
+  flex-shrink: 0;
+  font-weight: 600;
+  font-size: 13px;
+  color: var(--c-text);
+}
+.ide-pane-body {
+  flex: 1;
+  overflow-y: auto;
+  min-height: 0;
+}
+.ide-right .ide-pane-body {
+  padding: 10px 12px;
+}
+/* 右侧面板内的分组 */
+.ide-group {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  border-bottom: 1px solid var(--c-border-soft);
+  padding: 8px 0;
+}
+.ide-group:last-child {
+  border-bottom: none;
+}
+.ide-list-item {
+  padding: 4px 10px;
+  cursor: pointer;
+  font-size: 13px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--c-text);
+  border-left: 3px solid transparent;
+}
+.ide-list-item:hover {
+  background: var(--c-hover);
+}
+.ide-list-item.active {
+  background: var(--c-hl-a);
+  border-left-color: var(--c-accent);
+}
+.ide-empty {
+  color: var(--c-text-3);
+  text-align: center;
+  padding: 20px;
+  font-size: 13px;
+}
+
+/* --- 数据表（通用，供视图复用） --- */
+.mls-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+  background: var(--c-main);
+}
+.mls-table thead th {
+  position: sticky;
+  top: 0;
+  background: var(--c-panel);
+  color: var(--c-text-2);
+  font-weight: 600;
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--c-border);
+  text-align: left;
+  z-index: 5;
+}
+.mls-table tbody td {
+  padding: 5px 10px;
+  border-bottom: 1px solid var(--c-border-soft);
+  color: var(--c-text);
+}
+.mls-table tbody tr:hover td {
+  background: var(--c-hover);
+}
+
+/* --- 底部终端面板（终端保持固定深色） --- */
+.terminal-panel {
+  flex-shrink: 0;
+  background: #1e1e1e;
+  border-top: 1px solid #3a3a3a;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+
+}
+@keyframes slideUp {
+  from { height: 0; opacity: 0; }
+  to { height: 280px; opacity: 1; }
+}
+.terminal-panel-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  background: #2d2d2d;
+  padding: 4px 12px;
+  flex-shrink: 0;
+}
+.terminal-panel-title {
+  color: #cccccc;
+  font-size: 13px;
+  font-weight: 500;
+}
+.terminal-panel-close {
+  background: transparent;
+  border: none;
+  color: #cccccc;
+  cursor: pointer;
+  font-size: 16px;
+  padding: 0 4px;
+}
+.terminal-panel-close:hover {
+  color: #ffffff;
+  background: #e81123;
+  border-radius: 4px;
+}
+.terminal-panel-body {
+  flex: 1;
+  overflow: hidden;
+}
+.terminal-panel-body .xterm {
+  height: 100% !important;
+}
+.terminal-panel-body .xterm-viewport {
+  width: 100% !important;
 }

@@ -7,8 +7,17 @@ from app.utils.crypto_utils import encrypt_password, decrypt_password
 
 router = APIRouter()
 
-# 预设存储文件
-PRESET_FILE = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "presets.json")
+# 预设存储文件。
+# 打包版（PyInstaller onefile）中 __file__ 位于临时解压目录，写入会被清空，
+# 因此优先使用 Electron 注入的 MLS_USER_DATA（用户数据目录），仅开发时回退到 backend 目录。
+def get_data_dir():
+    ud = os.environ.get('MLS_USER_DATA', '')
+    if ud and os.path.isdir(ud):
+        return ud
+    # 开发模式：backend 目录（与原有行为一致）
+    return os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
+
+PRESET_FILE = os.path.join(get_data_dir(), "presets.json")
 
 
 def load_presets():
@@ -21,6 +30,7 @@ def load_presets():
 
 def save_presets(presets):
     """保存预设"""
+    os.makedirs(os.path.dirname(PRESET_FILE), exist_ok=True)
     with open(PRESET_FILE, 'w', encoding='utf-8') as f:
         json.dump(presets, f, indent=2, ensure_ascii=False)
 

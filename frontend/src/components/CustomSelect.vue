@@ -21,7 +21,7 @@
         @mousedown.prevent="toggleOptions"
         type="button"
       >
-        ▼
+        
       </button>
     </div>
     <ul v-show="show" class="options-list" ref="list">
@@ -143,14 +143,14 @@ export default {
 }
 .input-group .dropdown-btn {
   flex-shrink: 0;
-  border: 1px solid #d9d9d9;
+  border: 1px solid var(--c-border);
   border-left: none;
   border-radius: 0 4px 4px 0;
   padding: 0 8px;
   height: 32px;
-  background: white;
+  background: var(--c-elev);
   cursor: pointer;
-  color: #333;
+  color: var(--c-text);
   font-size: 12px;
   transition: background 0.2s;
   display: flex;
@@ -158,7 +158,7 @@ export default {
   justify-content: center;
 }
 .input-group .dropdown-btn:hover {
-  background: #f0f0f0;
+  background: var(--c-hover);
 }
 .options-list {
   position: absolute;
@@ -167,15 +167,16 @@ export default {
   right: 0;
   max-height: 150px;
   overflow-y: auto;
-  background: white;
-  border: 1px solid #d9d9d9;
+  background: var(--c-elev);
+  border: 1px solid var(--c-border);
   border-top: none;
   border-radius: 0 0 4px 4px;
   list-style: none;
   padding: 0;
   margin: 0;
   z-index: 9999;
-  box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25);
+  color: var(--c-text);
 }
 .options-list li {
   padding: 4px 10px;
@@ -187,6 +188,11 @@ export default {
 }
 .options-list li:hover,
 .options-list li.active {
-  background: #e6f7ff;
+  background: var(--c-accent-soft);
+  color: var(--c-text);
+}
+.options-list li.active {
+  color: var(--c-accent);
+  font-weight: 600;
 }
 </style>

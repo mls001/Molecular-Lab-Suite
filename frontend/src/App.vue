@@ -1,32 +1,44 @@
 <template>
-  <div id="app" style="display:flex;flex-direction:column;height:100vh;overflow:hidden;">
-    <header style="background:#001529;padding:8px 24px;display:flex;align-items:center;gap:20px;flex-shrink:0;flex-wrap:wrap;">
-      <h1 style="color:white;font-size:18px;margin:0;">Molecular Lab Suite, MLS V26.9</h1>
-      <nav style="display:flex;gap:12px;flex-wrap:wrap;">
-        <router-link to="/" style="color:#aaa;text-decoration:none;font-size:14px;">首页</router-link>
-        <router-link to="/gjf-modify" style="color:#aaa;text-decoration:none;font-size:14px;">修改GJF</router-link>
-        <router-link to="/log-to-gjf" style="color:#aaa;text-decoration:none;font-size:14px;">LOG→GJF</router-link>
-        <router-link to="/scan-extract" style="color:#aaa;text-decoration:none;font-size:14px;">提取扫描</router-link>
-        <router-link to="/orbital" style="color:#aaa;text-decoration:none;font-size:14px;">轨道能量</router-link>
-        <router-link to="/td" style="color:#aaa;text-decoration:none;font-size:14px;">TD信息</router-link>
-        <router-link to="/soc" style="color:#aaa;text-decoration:none;font-size:14px;">SOC数据</router-link>
-        <router-link to="/reorg" style="color:#aaa;text-decoration:none;font-size:14px;">重组能</router-link>
-        <router-link to="/reorg-extract" style="color:#aaa;text-decoration:none;font-size:14px;">重组能提取</router-link>
+  <div id="app" class="mls-shell">
+    <!-- PyCharm 风格顶栏：中性工具条 + 弱边框 -->
+    <header class="mls-topbar">
+      <div class="mls-brand">
+        <span class="mls-brand-mark">MLS</span>
+        <span class="mls-brand-name">Molecular Lab Suite&nbsp;V26.9</span>
+      </div>
+      <nav class="mls-nav">
+        <router-link to="/gjf-modify">修改GJF</router-link>
+        <router-link to="/log-to-gjf">LOG→GJF</router-link>
+        <router-link to="/scan-extract">提取扫描</router-link>
+        <router-link to="/orbital">轨道能量</router-link>
+        <router-link to="/td">TD信息</router-link>
+        <router-link to="/soc">SOC数据</router-link>
+        <router-link to="/reorg">重组能</router-link>
       </nav>
       <div style="flex:1;"></div>
-      <div style="display:flex;gap:8px;align-items:center;">
-        <button class="btn btn-primary" style="height:28px;padding:0 12px;font-size:12px;" @click="showConnection = true">
+      <div class="mls-topbar-actions">
+        <button class="btn btn-primary" style="height:26px;padding:0 12px;font-size:12px;" @click="showConnection = true">
           <span v-if="!remoteStore.connected">连接服务器</span>
           <span v-else>{{ remoteStore.displayName }}</span>
         </button>
-        <button class="btn btn-success" style="height:28px;padding:0 12px;font-size:12px;" @click="toggleTerminal" :disabled="!remoteStore.connected">
+        <button class="btn btn-success" style="height:26px;padding:0 12px;font-size:12px;" @click="toggleTerminal" :disabled="!remoteStore.connected">
           终端
+        </button>
+        <button class="btn btn-default" style="height:26px;padding:0 12px;font-size:12px;" @click="toggleFtp" :disabled="!remoteStore.connected">
+          FTP
+        </button>
+        <button
+          class="btn btn-default mls-theme-toggle"
+          :title="theme === 'dark' ? '切换到明亮模式' : '切换到暗色模式'"
+          @click="toggleThemeMode"
+        >
+          {{ theme === 'dark' ? '☀' : '☾' }}
         </button>
       </div>
     </header>
 
-    <!-- 主内容区域 -->
-    <main style="flex:1;overflow:hidden;padding:20px;min-height:0;">
+    <!-- 主内容区域：keep-alive 保留各页解析结果；离开页面时页面自身的 ws 任务会被停用钩子停止 -->
+    <main class="mls-main">
       <router-view v-slot="{ Component }">
         <keep-alive>
           <component :is="Component" />
@@ -34,13 +46,20 @@
       </router-view>
     </main>
 
-    <!-- 底部终端面板 -->
-    <div v-if="showTerminal" class="terminal-panel" :style="{ height: terminalHeight + 'px' }">
-      <div class="terminal-panel-header">
-        <span class="terminal-panel-title">终端 - {{ remoteStore.displayName }}</span>
-        <button class="terminal-panel-close" @click="showTerminal = false">✕</button>
+    <!-- 底部面板：终端居左、FTP 居右，可共存；单独打开时占满宽度 -->
+    <div
+      v-if="showTerminal || showFtp"
+      class="mls-bottom"
+      :style="{ height: terminalHeight + 'px' }"
+    >
+      <div v-if="showTerminal" class="terminal-panel" style="flex:1;min-width:0;width:auto;height:100%;">
+        <div class="terminal-panel-header">
+          <span class="terminal-panel-title">终端 - {{ remoteStore.displayName }}</span>
+          <button class="terminal-panel-close" @click="showTerminal = false" title="关闭终端">×</button>
+        </div>
+        <div ref="terminalContainer" class="terminal-panel-body"></div>
       </div>
-      <div ref="terminalContainer" class="terminal-panel-body"></div>
+      <FtpPanel v-if="showFtp" style="flex:1;min-width:0;width:auto;height:100%;" @close="showFtp = false" />
     </div>
 
     <!-- 连接对话框 -->
@@ -53,10 +72,12 @@ import { useRemoteStore } from '@/stores/remote'
 import { Terminal } from 'xterm'
 import 'xterm/css/xterm.css'
 import ConnectionDialog from '@/components/ConnectionDialog.vue'
+import FtpPanel from '@/components/FtpPanel.vue'
+import { currentTheme, toggleTheme } from '@/theme/theme'
 
 export default {
   name: 'App',
-  components: { ConnectionDialog },
+  components: { ConnectionDialog, FtpPanel },
   setup() {
     const remoteStore = useRemoteStore()
     return { remoteStore }
@@ -65,10 +86,12 @@ export default {
     return {
       showConnection: false,
       showTerminal: false,
+      showFtp: false,
       terminalHeight: 280,
       terminal: null,
       ws: null,
       resizeObserver: null,
+      theme: currentTheme(),
     }
   },
   watch: {
@@ -90,9 +113,17 @@ export default {
       // 连接成功后自动打开终端
       this.showTerminal = true
     },
+    toggleThemeMode() {
+      this.theme = toggleTheme()
+    },
     toggleTerminal() {
       if (this.remoteStore.connected) {
         this.showTerminal = !this.showTerminal
+      }
+    },
+    toggleFtp() {
+      if (this.remoteStore.connected) {
+        this.showFtp = !this.showFtp
       }
     },
     cleanupTerminal() {
@@ -137,16 +168,29 @@ export default {
         }))
       }
       this.ws.onmessage = (e) => {
-        const data = JSON.parse(e.data)
+        let data
+        try {
+          data = JSON.parse(e.data)
+        } catch (err) {
+          return
+        }
         if (data.type === 'output') {
           this.terminal.write(data.data)
         } else if (data.type === 'ready') {
           console.log('[Terminal] ready')
+        } else if (data.type === 'error') {
+          // 后端错误也要在终端里可见（避免“只有空光标”的假象）
+          console.error('[Terminal] error:', data.message)
+          this.terminal.write(`\x1b[31m\r\n[终端错误] ${data.message || ''}\x1b[0m\r\n`)
         }
       }
-      this.ws.onerror = (e) => {
-        console.error('[Terminal] WebSocket error:', e)
-        this.terminal.write('\x1b[31mWebSocket error\x1b[0m\r\n')
+      this.ws.onerror = () => {
+        this.terminal.write('\x1b[31m\r\n[终端] WebSocket 连接错误（后端是否已启动？）\x1b[0m\r\n')
+      }
+      this.ws.onclose = (e) => {
+        if (e && !e.wasClean) {
+          this.terminal.write('\x1b[33m\r\n[终端] 连接已断开\x1b[0m\r\n')
+        }
       }
       this.terminal.onData((data) => {
         if (this.ws && this.ws.readyState === WebSocket.OPEN) {
@@ -179,207 +223,99 @@ export default {
 </script>
 
 <style>
-/* ===== 全局重置 ===== */
-* {
-  margin: 0;
-  padding: 0;
-  box-sizing: border-box;
-}
-body {
-  font-family: 'Segoe UI', 'Segoe UI Emoji', 'Apple Color Emoji', 'Noto Color Emoji', sans-serif;
-  background: #f5f5f5;
-  height: 100vh;
-  overflow: hidden;
-}
-.router-link-active {
-  color: white !important;
-  font-weight: bold;
-}
-
-/* ===== 控件系统（供所有组件复用） ===== */
-
-/* --- 基础输入控件 --- */
-.control {
-  border: 1px solid #d9d9d9;
-  border-radius: 4px;
-  padding: 0 8px;
-  font-size: 13px;
-  box-sizing: border-box;
-  background: white;
-  color: #333;
-  outline: none;
-  transition: border-color 0.2s;
-}
-.control:focus {
-  border-color: #1890ff;
-  box-shadow: 0 0 0 2px rgba(24, 144, 255, 0.2);
-}
-.control:disabled {
-  background: #f5f5f5;
-  cursor: not-allowed;
-}
-
-/* --- 高度等级 --- */
-.h-sm { height: 24px; }
-.h-md { height: 28px; }
-.h-lg { height: 32px; }
-
-/* --- 宽度等级 --- */
-.w-xs { width: 50px; }
-.w-sm { width: 70px; }
-.w-md { width: 100px; }
-.w-lg { width: 140px; }
-.w-xl { width: 200px; }
-.w-2xl { width: 260px; }
-.w-3xl { width: 360px; }
-.w-full { width: 100%; }
-
-/* --- 只读预览框 --- */
-.preview {
-  background: #f5f5f5;
-  color: #666;
-  cursor: default;
-}
-
-/* --- 标签 --- */
-.label {
-  font-weight: 600;
-  font-size: 13px;
-  color: #333;
-  white-space: nowrap;
-}
-
-/* --- 按钮 --- */
-.btn {
-  border: none;
-  border-radius: 4px;
-  font-size: 13px;
-  cursor: pointer;
-  box-sizing: border-box;
-  transition: background 0.2s, opacity 0.2s;
-  padding: 0 14px;
-  height: 28px;
-}
-.btn:disabled {
-  opacity: 0.6;
-  cursor: not-allowed;
-}
-.btn-primary {
-  background: #1890ff;
-  color: white;
-}
-.btn-primary:hover:not(:disabled) {
-  background: #40a9ff;
-}
-.btn-success {
-  background: #52c41a;
-  color: white;
-}
-.btn-success:hover:not(:disabled) {
-  background: #73d13d;
-}
-.btn-warning {
-  background: #faad14;
-  color: white;
-}
-.btn-warning:hover:not(:disabled) {
-  background: #ffc53d;
-}
-.btn-danger {
-  background: #ff4d4f;
-  color: white;
-}
-.btn-danger:hover:not(:disabled) {
-  background: #ff7875;
-}
-
-/* --- 选择框 --- */
-select.control {
-  appearance: auto;
-  padding-right: 24px;
-}
-
-/* --- 文本框 --- */
-textarea.control {
-  padding: 8px;
-  resize: vertical;
-  font-family: monospace;
-  line-height: 1.5;
-}
-
-/* --- Flex 工具类 --- */
-.flex { display: flex; }
-.flex-col { display: flex; flex-direction: column; }
-.flex-center { display: flex; align-items: center; }
-.flex-1 { flex: 1; }
-.flex-shrink-0 { flex-shrink: 0; }
-.min-h-0 { min-height: 0; }
-.h-full { height: 100%; }
-
-/* --- 间距工具类 --- */
-.mr-1 { margin-right: 4px; }
-.mr-2 { margin-right: 8px; }
-.mr-3 { margin-right: 12px; }
-.ml-1 { margin-left: 4px; }
-.ml-2 { margin-left: 8px; }
-.ml-3 { margin-left: 12px; }
-.mt-1 { margin-top: 4px; }
-.mt-2 { margin-top: 8px; }
-.mb-1 { margin-bottom: 4px; }
-.mb-2 { margin-bottom: 8px; }
-.gap-1 { gap: 4px; }
-.gap-2 { gap: 8px; }
-.gap-3 { gap: 12px; }
-.gap-4 { gap: 16px; }
-
-/* ===== 底部终端面板 ===== */
-.terminal-panel {
-  flex-shrink: 0;
-  background: #1e1e1e;
-  border-top: 1px solid #444;
+/* ===== 应用外壳（顶栏/主区）— 只放与框架相关样式，控件系统见 assets/style.css ===== */
+.mls-shell {
   display: flex;
   flex-direction: column;
+  height: 100vh;
   overflow: hidden;
-  animation: slideUp 0.25s ease-out;
+  background: var(--c-app);
 }
-@keyframes slideUp {
-  from { height: 0; opacity: 0; }
-  to { height: 280px; opacity: 1; }
-}
-.terminal-panel-header {
+.mls-topbar {
+  background: var(--c-bar);
+  border-bottom: 1px solid var(--c-border);
+  padding: 4px 14px;
   display: flex;
-  justify-content: space-between;
   align-items: center;
-  background: #2d2d2d;
-  padding: 4px 12px;
+  gap: 18px;
   flex-shrink: 0;
+  flex-wrap: wrap;
+  min-height: 40px;
+  user-select: none;
 }
-.terminal-panel-title {
-  color: #ccc;
+.mls-brand {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.mls-brand-mark {
+  background: var(--c-accent);
+  color: #ffffff;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  border-radius: var(--r-sm);
+  padding: 2px 6px;
+}
+.mls-brand-name {
   font-size: 13px;
-  font-weight: 500;
+  font-weight: 600;
+  color: var(--c-text);
+  white-space: nowrap;
 }
-.terminal-panel-close {
-  background: transparent;
-  border: none;
-  color: #ccc;
-  cursor: pointer;
-  font-size: 16px;
-  padding: 0 4px;
+.mls-nav {
+  display: flex;
+  gap: 2px;
+  flex-wrap: wrap;
+  align-items: center;
 }
-.terminal-panel-close:hover {
-  color: #fff;
-  background: #e81123;
-  border-radius: 4px;
+.mls-nav a {
+  color: var(--c-text-2);
+  text-decoration: none;
+  font-size: 13px;
+  padding: 4px 10px;
+  border-radius: var(--r-sm);
+  white-space: nowrap;
+  transition: background 0.15s, color 0.15s;
 }
-.terminal-panel-body {
+.mls-nav a:hover {
+  background: var(--c-hover);
+  color: var(--c-text);
+}
+.mls-nav a.router-link-active {
+  color: var(--c-accent);
+  background: var(--c-accent-soft);
+  font-weight: 600;
+}
+.mls-topbar-actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+.mls-theme-toggle {
+  width: 26px;
+  padding: 0;
+  font-size: 14px;
+  line-height: 1;
+}
+.mls-main {
   flex: 1;
+  overflow: auto;
+  padding: 16px 20px 20px 20px;
+  min-height: 0;
+  background: var(--c-main);
+}
+.mls-bottom {
+  display: flex;
+  flex-direction: row;
+  flex-shrink: 0;
+  border-top: 1px solid var(--c-border);
+  background: var(--c-app);
   overflow: hidden;
 }
-.terminal-panel-body .xterm {
-  height: 100% !important;
-}
-.terminal-panel-body .xterm-viewport {
-  width: 100% !important;
+.mls-bottom > * {
+  min-width: 0;
+  min-height: 0;
+  height: 100%;
 }
 </style>
