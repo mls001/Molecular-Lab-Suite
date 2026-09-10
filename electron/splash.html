@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Molecular Lab Suite</title>
+  <style>
+    /* 启动画面：与主界面同一套"硬朗"风格（直角 + 浮雕 + 深色标题栏） */
+    * { margin: 0; padding: 0; box-sizing: border-box; user-select: none; }
+    html, body { width: 100%; height: 100%; overflow: hidden; }
+    body {
+      background: #14161a;
+      border: 1px solid #4a5057;
+      font-family: Tahoma, 'Segoe UI', 'Microsoft YaHei UI', 'Microsoft YaHei', sans-serif;
+      color: #d7dbdf;
+      display: flex;
+      flex-direction: column;
+      -webkit-app-region: drag;
+    }
+    .titlebar {
+      height: 22px;
+      display: flex;
+      align-items: center;
+      padding: 0 8px;
+      background: linear-gradient(90deg, #1d2a3a, #3c556e);
+      border-bottom: 1px solid #0f1113;
+      font-size: 11px;
+      font-weight: 700;
+      color: #e8eef5;
+      letter-spacing: .3px;
+    }
+    .body {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      gap: 8px;
+      padding: 12px 20px;
+    }
+    .brand { display: flex; align-items: center; gap: 10px; }
+    .mark {
+      width: 46px;
+      height: 46px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: linear-gradient(180deg, #4a6b8c, #22303f);
+      border: 1px solid #0f1113;
+      box-shadow: inset 1px 1px 0 #6f8ba6, inset -1px -1px 0 #101214;
+      font-size: 15px;
+      font-weight: 700;
+      color: #eaf1f8;
+      letter-spacing: .5px;
+    }
+    .name { font-size: 17px; font-weight: 700; color: #eef2f6; line-height: 1.25; }
+    .ver { font-size: 11px; color: #8d959d; }
+    .bar {
+      height: 12px;
+      border: 1px solid #0f1113;
+      background: #1b1e22;
+      box-shadow: inset 1px 1px 0 #0a0c0e;
+      padding: 2px;
+      overflow: hidden;
+    }
+    .bar > i {
+      display: block;
+      height: 100%;
+      width: 34%;
+      background: repeating-linear-gradient(90deg, #6f8ba6 0 12px, #5b7691 12px 16px);
+      animation: slide 1.15s linear infinite;
+    }
+    @keyframes slide {
+      from { transform: translateX(-110%); }
+      to { transform: translateX(320%); }
+    }
+    .status { font-size: 11px; color: #98a0a8; }
+    .foot {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-end;
+      font-size: 10px;
+      color: #6f767d;
+    }
+    /* 左列三行：工具定位 / 署名 / GitHub 链接 */
+    .foot-left {
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+      line-height: 1.3;
+    }
+    .foot-left .credit { color: #616a72; }
+    /* 链接必须脱离拖拽区域才能点击 */
+    .foot-left a {
+      color: #7fa6cf;
+      text-decoration: none;
+      -webkit-app-region: no-drag;
+      cursor: pointer;
+    }
+    .foot-left a:hover { color: #a8c6e6; text-decoration: underline; }
+  </style>
+</head>
+<body>
+  <div class="titlebar">Molecular Lab Suite &nbsp;V26.9</div>
+  <div class="body">
+    <div class="brand">
+      <div class="mark">MLS</div>
+      <div>
+        <div class="name">Molecular Lab Suite</div>
+        <div class="ver">Computational Chemistry Desktop &nbsp;·&nbsp; V26.9</div>
+      </div>
+    </div>
+    <div class="bar"><i></i></div>
+    <div class="status" id="status">Starting backend service…</div>
+    <div class="foot">
+      <div class="foot-left">
+        <span>Gaussian / ORCA workflow toolkit</span>
+        <span class="credit">Powered by mls001, with code assistance from DeepSeek</span>
+        <a href="https://github.com/mls001" title="https://github.com/mls001">https://github.com/mls001</a>
+      </div>
+      <span id="elapsed">0.0s</span>
+    </div>
+  </div>
+  <script>
+    // 纯展示：计时 + 文案轮换，让等待过程有反馈
+    const steps = [
+      'Starting backend service…',
+      'Loading presets and workspace…',
+      'Preparing interface…'
+    ]
+    let i = 0
+    const start = Date.now()
+    const status = document.getElementById('status')
+    const elapsed = document.getElementById('elapsed')
+    setInterval(() => {
+      elapsed.textContent = ((Date.now() - start) / 1000).toFixed(1) + 's'
+    }, 100)
+    setInterval(() => {
+      i = (i + 1) % steps.length
+      status.textContent = steps[i]
+    }, 1400)
+  </script>
+</body>
+</html>
