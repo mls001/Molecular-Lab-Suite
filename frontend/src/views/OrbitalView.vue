@@ -38,6 +38,9 @@
             <table v-if="currentTableData.length" style="width:100%;border-collapse:collapse;font-size:13px;">
               <thead style="position:sticky;top:0;background:var(--c-panel);z-index:10;">
                 <tr>
+                  <th style="padding:6px 6px;border-bottom:1px solid var(--c-border);text-align:center;width:26px;">
+                    <input type="checkbox" :checked="allChecked" @change="toggleAllOrbitals($event.target.checked)" />
+                  </th>
                   <th style="padding:6px 10px;border-bottom:1px solid var(--c-border);text-align:left;">{{ $t('自旋') }}</th>
                   <th style="padding:6px 10px;border-bottom:1px solid var(--c-border);text-align:left;">{{ $t('类型') }}</th>
                   <th style="padding:6px 10px;border-bottom:1px solid var(--c-border);text-align:center;">{{ $t('轨道序号') }}</th>
@@ -53,6 +56,9 @@
                   :class="{ 'row-homo': row.isHOMO, 'row-lumo': row.isLUMO }"
                   :style="row.isHOMO ? 'background:var(--c-homo-row);' : row.isLUMO ? 'background:var(--c-lumo-row);' : ''"
                 >
+                  <td style="padding:5px 6px;border-bottom:1px solid var(--c-hover);text-align:center;">
+                    <input type="checkbox" :value="Number(row.index)" v-model="selectedOrbitals" />
+                  </td>
                   <td style="padding:5px 10px;border-bottom:1px solid var(--c-hover);">{{ row.spin }}</td>
                   <td style="padding:5px 10px;border-bottom:1px solid var(--c-hover);">{{ row.type }}</td>
                   <td style="padding:5px 10px;border-bottom:1px solid var(--c-hover);text-align:center;">{{ row.index }}</td>
@@ -113,6 +119,103 @@
             <div v-if="gapResult" style="font-weight:700;font-size:13px;color:var(--c-accent);">{{ gapResult }}</div>
             <div v-if="gapError" style="color:var(--c-danger);font-size:13px;">{{ gapError }}</div>
           </div>
+
+          <!-- 轨道图：Multiwfn 生成 cub → VMD 渲染 -->
+          <div class="ide-group">
+            <div class="flex-center" style="justify-content:space-between;">
+              <span class="label">{{ $t('轨道图（Multiwfn + VMD）') }}</span>
+              <button class="btn" style="height:22px;padding:0 8px;font-size:11px;" @click="openToolSettings">{{ $t('配置外部程序…') }}</button>
+            </div>
+            <div class="rp-hint"
+                 :style="{ color: toolsReady ? 'var(--c-green)' : 'var(--c-warning)', wordBreak: 'break-all' }">
+              {{ toolsReady ? $t('已找到：{0}', { 0: toolsSummary }) : $t('没检测到 Multiwfn / VMD：可在右上角「外部程序」里指定目录，或把程序所在目录加进系统环境变量 PATH') }}
+            </div>
+            <!-- 波函数来源：与 NTO / 空穴-电子页共用同一个组件 -->
+            <WavefnSource
+              ref="wf"
+              v-model="wavefnPath"
+              :source-path="sourceLogPath"
+              :remote-cache="fromRemoteCache"
+              :session-id="sessionId"
+              :remote-folder="remoteFolder"
+              :extra-dir="cubDirResolved"
+              @blocked="wfBlocked = $event"
+              @force-try="makeCubs(true)"
+              @log="onWfLog"
+            />
+            <div class="rp-row">
+              <span class="label">{{ $t('目标目录') }}</span>
+              <span class="flex-center" style="gap:4px;">
+                <button class="btn" style="height:22px;padding:0 8px;font-size:11px;" @click="chooseCubDir">{{ $t('选择…') }}</button>
+                <button class="btn" style="height:22px;padding:0 8px;font-size:11px;" @click="cubDir = defaultCubDir">{{ $t('默认') }}</button>
+              </span>
+            </div>
+            <div class="rp-hint">{{ cubDir || defaultCubDir || $t('未选择') }}</div>
+            <div class="rp-row">
+              <span class="label">{{ $t('网格质量') }}</span>
+              <select class="control rp-num" style="font-size:11px;" v-model.number="cubGrid">
+                <option :value="1">{{ $t('低（快）') }}</option>
+                <option :value="2">{{ $t('中') }}</option>
+                <option :value="3">{{ $t('高（慢）') }}</option>
+              </select>
+            </div>
+            <div class="rp-row">
+              <span class="label">{{ $t('等值面') }}</span>
+              <input class="control rp-num" type="number" step="0.005" min="0.001" v-model.number="isoValue" />
+            </div>
+            <div class="rp-row">
+              <span class="label">{{ $t('渲染风格') }}</span>
+              <select class="control rp-num" style="font-size:11px;" v-model="renderStyle">
+                <option value="art">{{ $t('艺术级（阴影着色）') }}</option>
+                <option value="art_noshadow">{{ $t('艺术级（无阴影）') }}</option>
+                <option value="standard">{{ $t('标准') }}</option>
+              </select>
+            </div>
+            <div v-if="renderStyle !== 'standard'" class="rp-hint">
+              {{ $t('艺术级参数取自 Multiwfn 作者的 VMDrender.txt（碳=tan 色、等值面微透明、正负用 12/22 号色），分辨率 2000×1500') }}
+            </div>
+            <div class="flex" style="gap:6px;">
+              <button class="btn btn-primary" style="flex:1;" @click="makeCubs()"
+                      :disabled="orbBusy || !selectedOrbitals.length || !sourceLogPath || wfBlocked">
+                {{ cubBusy ? $t('生成中…') : $t('生成 cub（{n}）', { n: selectedOrbitals.length }) }}
+              </button>
+              <button class="btn btn-success" style="flex:1;" @click="renderCubs"
+                      :disabled="orbBusy || !cubItems.length">
+                {{ vmdBusy ? $t('渲染中…') : $t('绘制（VMD）') }}
+              </button>
+            </div>
+            <div v-if="!sourceLogPath" class="rp-hint" style="color:var(--c-warning);">{{ $t('请先在左侧选择已解析的 LOG 文件') }}</div>
+            <div v-if="cubItems.length" class="rp-hint">{{ $t('已生成 {0} 个 cube', { 0: cubItems.length }) }}</div>
+            <label class="rp-check">
+              <input type="checkbox" v-model="showScripts" /> {{ $t('编辑脚本模板（版本不同可自行调整）') }}
+            </label>
+            <template v-if="showScripts">
+              <div class="flex-col" style="gap:3px;">
+                <span class="label">Multiwfn</span>
+                <textarea class="control" style="width:100%;height:62px;font-size:11px;padding:4px;" v-model="cubScriptText" :placeholder="$t('留空用默认：200/3/{orb}/{grid}/1（末尾自动补 0、q 正常退出）')"></textarea>
+              </div>
+              <div class="flex-col" style="gap:3px;">
+                <span class="label">VMD</span>
+                <textarea class="control" style="width:100%;height:62px;font-size:11px;padding:4px;" v-model="vmdScriptText" :placeholder="$t('留空用默认：mol new {cub} / Isosurface {iso} / render Tachyon {scene}')"></textarea>
+              </div>
+              <button class="btn" style="height:22px;font-size:11px;" @click="cubScriptText = ''; vmdScriptText = ''">{{ $t('恢复默认脚本') }}</button>
+            </template>
+          </div>
+
+          <!-- 轨道预览（渲染好的 VMD 图优先，其次 3Dmol 实时等值面） -->
+          <div v-if="previews.length" class="ide-group">
+            <span class="label">{{ $t('轨道预览') }}</span>
+            <div class="orb-grid">
+              <div v-for="p in previews" :key="p.orbital" class="orb-cell" @click="openPreview(p)">
+                <img v-if="p.imageData" :src="p.imageData" class="orb-img" />
+                <CubPreview v-else-if="p.cubText" :cub-text="p.cubText" :label="p.label" :isovalue="isoValue" />
+                <div v-else class="orb-pending">{{ p.label }}<br />{{ $t('等待 cube…') }}</div>
+              </div>
+            </div>
+            <div v-if="cubItems.length > previews.length" class="rp-hint">
+              {{ $t('只预览前 {0} 个轨道（避免占用过多显存）', { 0: previews.length }) }}
+            </div>
+          </div>
         </div>
       </aside>
     </div>
@@ -128,6 +231,18 @@
     />
 
     <LogViewer :lines="logLines" />
+
+    <!-- 页面下方：绘图方法参考 -->
+    <DocLinks :links="docLinks" />
+
+    <!-- 轨道图放大预览 -->
+    <ImagePreviewModal
+      v-model:visible="previewVisible"
+      :src="previewSrc"
+      :title="$t('轨道图')"
+      filename="orbital.png"
+      :initial-dir="cubDirResolved"
+    />
   </div>
 </template>
 
@@ -135,6 +250,13 @@
 import LogViewer from '../components/LogViewer.vue'
 import RemoteFileBrowser from '../components/RemoteFileBrowser.vue'
 import EmptyNotice from '@/components/EmptyNotice.vue'
+import CubPreview from '@/components/CubPreview.vue'
+import ImagePreviewModal from '@/components/ImagePreviewModal.vue'
+import WavefnSource from '@/components/WavefnSource.vue'
+import DocLinks from '@/components/DocLinks.vue'
+import { useExternalToolsStore } from '@/stores/externalTools'
+import { useMultiwfnCitationStore } from '@/stores/multiwfnCitation'
+import { useProgressStore } from '@/stores/progress'
 import scrollCache from '@/mixins/scrollCache'
 import { pickDirectory } from '@/api/dialog'
 import { syncRemoteFolder } from '@/api/remoteSync'
@@ -145,7 +267,7 @@ import { t as $tr } from '@/i18n'
 
 export default {
   name: 'OrbitalView',
-  components: { LogViewer, RemoteFileBrowser, EmptyNotice },
+  components: { LogViewer, RemoteFileBrowser, EmptyNotice, CubPreview, ImagePreviewModal, WavefnSource, DocLinks },
   mixins: [scrollCache],
   setup() {
     const remoteStore = useRemoteStore()
@@ -174,9 +296,33 @@ export default {
       gapError: '',
       parsedOnce: false,        // 是否已经跑过一次解析（用于区分"未解析"与"该文件不含轨道信息"）
       noticeHint: '',           // 解析失败原因（显示在提示下方的小字）
+      // ===== 轨道图（Multiwfn + VMD） =====
+      selectedOrbitals: [],
+      cubDir: '',
+      cubGrid: 3,
+      isoValue: 0.02,
+      wavefnPath: '',           // 波函数文件（.fchk/.wfn/.wfx/.molden…），空 = 用 LOG / 自动检测
+      wfBlocked: false,         // 由 WavefnSource 组件上报：LOG 读不出波函数且没指定别的文件
+      fromRemoteCache: false,   // 当前解析结果来自远程缓存（不是本地目录）
+      cubItems: [],
+      imageItems: [],
+      cubBusy: false,
+      vmdBusy: false,
+      cubScript: null,
+      vmdScript: null,
+      showScripts: false,
+      cubScriptText: '',
+      vmdScriptText: '',
+      renderStyle: 'art',       // 渲染风格：art（艺术级，sobereva.com/449）/ art_noshadow / standard
+      backendUrl: '',
+      previewVisible: false,
+      previewSrc: '',
+      cubTexts: {},             // 轨道序号 → cube 文本（供等值面预览）
+      imageData: {},            // 轨道序号 → 渲染图片 dataURL
       _pageActive: true,
       _scrollToken: 0,
       _scrollRaf: null,
+      _fileCache: {},           // 每个文件的勾选与产物（切回来还在）
     }
   },
   watch: {
@@ -185,6 +331,10 @@ export default {
       this.autoScrollToHOMO()
       this.gapResult = ''
       this.gapError = ''
+    },
+    sourceLogPath() {
+      // 换 LOG 时清掉上一份波函数选择（WavefnSource 自己会重新预检）
+      this.wavefnPath = ''
     }
   },
   beforeUnmount() {
@@ -205,8 +355,220 @@ export default {
   },
   activated() {
     this._pageActive = true
+    // 回到本页时重新解析 Multiwfn / VMD 位置（用户可能刚改过目录或环境变量）
+    this.toolsStore.detect()
+  },
+  computed: {
+    toolsStore() { return useExternalToolsStore() },
+    toolsReady() { return !!(this.toolsStore.multiwfnReady && this.toolsStore.vmdReady) },
+    toolsSummary() { return this.toolsStore.summary },
+    docLinks() {
+      return [
+        { label: '使用 Multiwfn+VMD 快速绘制高质量分子轨道等值面图（sobereva.com/447）', url: 'http://sobereva.com/447' },
+        { label: '用 Multiwfn 结合 VMD 绘制艺术级轨道等值面图（sobereva.com/449）', url: 'http://sobereva.com/449' }
+      ]
+    },
+    allChecked() {
+      return this.currentTableData.length > 0 && this.selectedOrbitals.length === this.currentTableData.length
+    },
+    // 当前解析出的 LOG 绝对路径（本地模式）
+    sourceLogPath() {
+      const item = this.allData[this.selectedIndex]
+      if (!item || !this.folder) return ''
+      const sep = this.folder.includes('\\') ? '\\' : '/'
+      return `${this.folder.replace(/[\\/]+$/, '')}${sep}${item.filename}`
+    },
+    sourceLogName() {
+      const item = this.allData[this.selectedIndex]
+      return item ? item.filename : ''
+    },
+    defaultCubDir() { return this.folder || '' },
+    cubDirResolved() { return this.cubDir || this.defaultCubDir },
+    // 产物归档用的分子名（取 LOG 文件名，例如 DFMP-PI）
+    moleculeStem() { return (this.sourceLogName || 'molecule').replace(/\.[^.]+$/, '') },
+    orbBusy() { return this.cubBusy || this.vmdBusy },
+    // 预览列表：优先显示已渲染图片，其次实时等值面预览
+    previews() {
+      const limit = 6
+      const list = []
+      for (const it of this.cubItems.slice(0, limit)) {
+        list.push({
+          orbital: it.orbital,
+          label: `#${it.orbital}`,
+          cub: it.cub,
+          image: (this.imageItems.find(x => x.orbital === it.orbital && x.ok) || {}).image || '',
+          imageData: this.imageData[it.orbital] || '',
+          cubText: this.cubTexts[it.orbital] || ''
+        })
+      }
+      return list
+    }
   },
   methods: {
+    // ===== 轨道图：Multiwfn 生成 cub / VMD 渲染 =====
+    async ensureBackend() {
+      if (this.backendUrl) return this.backendUrl
+      if (window.electronAPI && typeof window.electronAPI.getBackendUrl === 'function') {
+        try { this.backendUrl = await window.electronAPI.getBackendUrl() } catch (e) { /* ignore */ }
+      }
+      if (!this.backendUrl) this.backendUrl = `http://${__BACKEND_HOST__}:${__BACKEND_PORT__}`
+      return this.backendUrl
+    },
+    async extPost(path, body) {
+      const base = await this.ensureBackend()
+      const resp = await fetch(`${base}${path}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body || {})
+      })
+      const text = await resp.text()
+      let data = {}
+      if (text) {
+        try { data = JSON.parse(text) } catch (e) { data = { detail: text.slice(0, 300) } }
+      }
+      return { ok: resp.ok, data }
+    },
+    async extGet(path, params = {}) {
+      const base = await this.ensureBackend()
+      const qs = new URLSearchParams(params).toString()
+      const resp = await fetch(`${base}${path}${qs ? '?' + qs : ''}`)
+      const text = await resp.text()
+      let data = {}
+      if (text) {
+        try { data = JSON.parse(text) } catch (e) { data = { detail: text.slice(0, 300) } }
+      }
+      return { ok: resp.ok, data }
+    },
+    baseName(p) {
+      return String(p || '').split(/[\\/]/).pop()
+    },
+    // 预检交给 WavefnSource 组件（轨道图 / NTO / 空穴-电子三页共用），这里只接收日志
+    onWfLog({ text, color }) {
+      this.addLog(text, color)
+    },
+    // 脚本模板文本 → 行数组（留空则用后端默认）
+    scriptLines(text) {
+      const lines = String(text || '').split(/\r?\n/).map(s => s.trim()).filter(Boolean)
+      return lines.length ? lines : null
+    },
+    toggleAllOrbitals(checked) {
+      this.selectedOrbitals = checked ? this.currentTableData.map(r => Number(r.index)) : []
+    },
+    openToolSettings() {
+      window.dispatchEvent(new CustomEvent('mls-open-external-tools'))
+    },
+    async chooseCubDir() {
+      try {
+        const p = await pickDirectory(this.$t('选择 cub / 图片输出目录'), this.cubDirResolved)
+        if (p) this.cubDir = p
+      } catch (e) {
+        this.addLog($tr('选择目录失败: {0}', { 0: e.message }), '#ff6b6b')
+      }
+    },
+    async makeCubs(force = false) {
+      if (!this.sourceLogPath) { this.addLog($tr('请先在左侧选择已解析的 LOG 文件'), '#ffa500'); return }
+      if (!this.toolsStore.multiwfnReady) { this.addLog($tr('没检测到 Multiwfn：请先在右上角「外部程序」里指定目录'), '#ffa500'); return }
+      if (!this.selectedOrbitals.length) { this.addLog($tr('请先勾选要生成的轨道'), '#ffa500'); return }
+      // 远程模式：先按需把同名的 .fchk 等波函数文件下载到本地缓存（由 WavefnSource 负责）
+      if (!force && this.wfBlocked) {
+        const local = await this.$refs.wf.ensureRemote()
+        if (local) this.wavefnPath = local
+      }
+      // 使用 Multiwfn 前先确认引用说明（可勾选不再提示）
+      await useMultiwfnCitationStore().require('orbitals')
+      this.cubBusy = true
+      const gp = useProgressStore()
+      gp.start($tr('Multiwfn 生成 {0} 个轨道 cube…', { 0: this.selectedOrbitals.length }))
+      this.addLog($tr('调用 Multiwfn 生成 {0} 个轨道 cube…', { 0: this.selectedOrbitals.length }), '#87d2ff')
+      const { ok, data } = await this.extPost('/api/ext/cub', {
+        source: this.sourceLogPath,
+        wavefn: this.wavefnPath,
+        force: !!force,
+        out_dir: this.cubDirResolved,
+        folder_name: this.moleculeStem,
+        orbitals: this.selectedOrbitals.map(Number).sort((a, b) => a - b),
+        grid: this.cubGrid,
+        multiwfn_dir: this.toolsStore.multiwfnDir,
+        template: this.scriptLines(this.cubScriptText)
+      })
+      this.cubBusy = false
+      if (!ok) {
+        gp.hide()
+        this.addLog($tr('生成 cube 失败: {0}', { 0: data.detail }), '#ff6b6b')
+        return
+      }
+      this.cubItems = (data.items || []).filter(i => i.ok)
+      this.imageItems = []
+      const bad = (data.items || []).filter(i => !i.ok)
+      this.addLog($tr('已生成 {0} 个 cube → {1}', { 0: this.cubItems.length, 1: data.out_dir }), '#7cfc00')
+      if (bad.length) this.addLog($tr('{0} 个轨道未生成成功（看日志）', { 0: bad.length }), '#ffa500')
+      if (data.log) data.log.split('\n').forEach(l => this.addLog(l, '#9aa3ad'))
+      if (data.hint) this.addLog(data.hint, '#ff6b6b')
+      // 读取 cube 文本供等值面预览
+      let doneN = 0
+      const todo = this.cubItems.slice(0, 6)
+      for (const it of todo) {
+        const r = await this.extPost('/api/ext/read-cub', { path: it.cub })
+        if (r.ok) this.cubTexts[it.orbital] = r.data.text
+        doneN++
+        gp.step(doneN, todo.length || 1, $tr('读取 cube {0}/{1}', { 0: doneN, 1: todo.length }))
+      }
+      gp.finish($tr('已生成 {0} 个 cube', { 0: this.cubItems.length }))
+    },
+    /** 图片右下角标注：分子名 + 轨道号 + HOMO/LUMO 标记 + 能量 */
+    orbNote(orb) {
+      const row = this.currentTableData.find(r => Number(r.index) === Number(orb))
+      let tag = ''
+      if (row) {
+        if (row.isHOMO) tag = 'HOMO'
+        else if (row.isLUMO) tag = 'LUMO'
+      }
+      const parts = [this.moleculeStem, `orb${orb}`]
+      if (tag) parts.push(tag)
+      if (row && row.energy_ev != null && row.energy_ev !== '') parts.push(`${row.energy_ev} eV`)
+      return parts.join('  ')
+    },
+    async renderCubs() {
+      if (!this.cubItems.length) return
+      if (!this.toolsStore.vmdReady) { this.addLog($tr('没检测到 VMD：请先在右上角「外部程序」里指定目录'), '#ffa500'); return }
+      this.vmdBusy = true
+      const gp = useProgressStore()
+      gp.start($tr('VMD 渲染 {0} 张轨道图…', { 0: this.cubItems.length }))
+      this.addLog($tr('调用 VMD 渲染 {0} 个轨道图…', { 0: this.cubItems.length }), '#87d2ff')
+      const { ok, data } = await this.extPost('/api/ext/render', {
+        out_dir: this.cubDirResolved,
+        folder_name: this.moleculeStem,
+        items: this.cubItems.map(i => ({ orbital: i.orbital, cub: i.cub, note: this.orbNote(i.orbital) })),
+        vmd_dir: this.toolsStore.vmdDir,
+        iso: this.isoValue,
+        style: this.renderStyle,
+        script: this.scriptLines(this.vmdScriptText)
+      })
+      this.vmdBusy = false
+      if (!ok) {
+        gp.hide()
+        this.addLog($tr('VMD 渲染失败: {0}', { 0: data.detail }), '#ff6b6b')
+        return
+      }
+      this.imageItems = data.items || []
+      const done = this.imageItems.filter(i => i.ok)
+      this.addLog($tr('已渲染 {0} 张轨道图 → {1}', { 0: done.length, 1: data.out_dir }), '#7cfc00')
+      if (data.log) data.log.split('\n').forEach(l => this.addLog(l, '#9aa3ad'))
+      // 通过后端取回图片（避免 file:// 在同源策略下加载失败）
+      let n = 0
+      for (const it of done) {
+        const r = await this.extPost('/api/ext/read-image', { path: it.image })
+        if (r.ok) this.imageData[it.orbital] = `data:${r.data.mime};base64,${r.data.base64}`
+        n++
+        gp.step(n, done.length || 1, $tr('读取渲染图 {0}/{1}', { 0: n, 1: done.length }))
+      }
+      gp.finish($tr('已渲染 {0} 张轨道图', { 0: done.length }))
+    },
+    openPreview(p) {
+      if (!p.imageData) return
+      this.previewSrc = p.imageData
+      this.previewVisible = true
+    },
     addLog(text, color = '#d4d4d4') {
       this.logLines.push({ text, color })
       this.logKey++
@@ -244,6 +606,7 @@ export default {
           this.addLog($tr('请先选择本地文件夹'), '#ffa500')
           return
         }
+        this.fromRemoteCache = false
         this.startParse()
         return
       }
@@ -266,6 +629,7 @@ export default {
           return
         }
         this.folder = cacheDir
+        this.fromRemoteCache = true      // 数据来自远程缓存：cub 需要时再下载同名波函数文件
         this.running = false
         this.startParse()
       } catch (e) {
@@ -370,9 +734,32 @@ export default {
     },
 
     selectFile(idx) {
-      if (idx >= 0 && idx < this.allData.length) {
-        this.selectedIndex = idx
+      // 每个文件的勾选/产物各自缓存：切回来还能看到之前的解析与图，又不会串到别的分子
+      this.cacheCurrent()
+      this.selectedIndex = idx
+      this.restoreCache()
+    },
+    /** 把当前文件的勾选与产物存进缓存 */
+    cacheCurrent() {
+      const name = this.sourceLogName
+      if (!name) return
+      this._fileCache[name] = {
+        selectedOrbitals: [...this.selectedOrbitals],
+        cubItems: this.cubItems,
+        imageItems: this.imageItems,
+        cubTexts: this.cubTexts,
+        imageData: this.imageData
       }
+    },
+    /** 切回某文件时恢复它自己的勾选与产物 */
+    restoreCache() {
+      const name = this.sourceLogName
+      const c = name ? this._fileCache[name] : null
+      this.selectedOrbitals = c ? [...(c.selectedOrbitals || [])] : []
+      this.cubItems = c ? (c.cubItems || []) : []
+      this.imageItems = c ? (c.imageItems || []) : []
+      this.cubTexts = c ? (c.cubTexts || {}) : {}
+      this.imageData = c ? (c.imageData || {}) : {}
     },
 
     buildCurrentTable(idx) {

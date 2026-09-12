@@ -374,6 +374,8 @@ function startBackend() {
     MLS_PROJECT_ROOT: projectRoot,
     // 后端持久数据（预设/密钥等）写入用户数据目录，避免 PyInstaller 临时目录被清空导致丢失
     MLS_USER_DATA: app.getPath('userData'),
+    // .mls 分子文件保存在 .exe 同级的 Mols 目录
+    MLS_MOLS_DIR: getMolsDir(),
   };
 
   backendProcess = spawn(exe, args, {
@@ -447,8 +449,21 @@ function setSquareCorners(win) {
   }
 }
 
-// ===== 外链处理 =====
-// 界面里的 http(s) 链接一律交给系统浏览器打开，避免把应用窗口本身导航走。
+// ===== 分子文件（.mls）目录 =====
+// 打包后：.exe 同级的 Mols 目录；开发环境：项目根目录下的 Mols
+function getMolsDir() {
+  try {
+    const base = app.isPackaged ? path.dirname(app.getPath('exe')) : path.join(__dirname, '..');
+    const dir = path.join(base, 'Mols');
+    fs.mkdirSync(dir, { recursive: true });
+    return dir;
+  } catch (e) {
+    safeLog('[mols] 创建 Mols 目录失败:', e && e.message);
+    return '';
+  }
+}
+
+// ===== 外链处理 =====// 界面里的 http(s) 链接一律交给系统浏览器打开，避免把应用窗口本身导航走。
 function attachExternalLinks(win) {
   if (!win || !win.webContents) return;
   const openExternal = (url) => {
@@ -634,11 +649,13 @@ ipcMain.handle('get-backend-ws-url', () => {
 });
 
 // FTP 等使用的默认路径（Windows=桌面，Linux=/home/<用户> 由前端拼用户名）
+// molsDir：.mls 分子文件的保存位置（打包后为 .exe 同级的 Mols 目录）
 ipcMain.handle('get-default-paths', () => {
   return {
     platform: process.platform,
     desktop: app.getPath('desktop'),
-    home: app.getPath('home')
+    home: app.getPath('home'),
+    molsDir: getMolsDir()
   };
 });
 

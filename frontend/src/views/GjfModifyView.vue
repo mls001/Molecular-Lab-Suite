@@ -16,7 +16,7 @@
           </div>
         </div>
         <div v-if="inputFolder" class="mls-subhead">
-          {{ $t('共 {n} 项 · 可用 {m} 个', { n: allEntries.length, m: listFiles.length }) }}{{ workMode === 'log' ? ' .log/.out' : ' .gjf' }}
+          {{ $t('共 {n} 项 · 可用 {m} 个', { n: allEntries.length, m: listFiles.length }) }}{{ workMode === 'log' ? ' .log/.out' : ' .gjf/.mls' }}
         </div>
         <div style="flex:1;overflow-y:auto;padding:4px 0;min-height:0;">
           <div v-if="!inputFolder" style="color:var(--c-text-3);text-align:center;padding:18px;font-size:13px;">
@@ -68,6 +68,10 @@
                 />
               </span>
               <span v-else style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">{{ entry.name }}</span>
+              <span
+                v-if="!entry.is_dir && isMlsName(entry.name)"
+                style="flex-shrink:0;font-size:10px;font-weight:700;color:var(--c-accent);"
+              >MLS</span>
             </div>
           </template>
         </div>
@@ -164,42 +168,42 @@
         </div>
 
         <!-- 目录 -->
-        <div class="flex-col" style="gap:4px;border-top:1px solid var(--c-border-soft);padding-top:10px;">
+        <div class="rp-sec">
           <div class="flex-center" style="justify-content:space-between;">
             <span class="label">{{ workMode === 'log' ? $t('LOG 目录') : $t('输入目录') }}</span>
             <button class="btn" style="height:24px;padding:0 10px;font-size:12px;" @click="mode==='local' ? selectInputFolder() : openRemoteBrowser('input')" :disabled="mode==='remote' && !remoteConnected">{{ $t('选择…') }}</button>
           </div>
-          <div style="font-size:12px;color:var(--c-text-2);word-break:break-all;min-height:16px;">{{ inputFolder || $t('未选择') }}</div>
+          <div class="rp-hint">{{ inputFolder || $t('未选择') }}</div>
           <div class="flex-center" style="justify-content:space-between;">
             <span class="label">{{ workMode === 'log' ? $t('GJF 输出目录') : $t('输出目录') }}</span>
             <button class="btn" style="height:24px;padding:0 10px;font-size:12px;" @click="mode==='local' ? selectOutputFolder() : openRemoteBrowser('output')" :disabled="mode==='remote' && !remoteConnected">{{ $t('选择…') }}</button>
           </div>
-          <div style="font-size:12px;color:var(--c-text-2);word-break:break-all;min-height:16px;">{{ outputFolder || (workMode === 'log' ? $t('未选择（默认与 LOG 目录相同）') : $t('未选择')) }}</div>
+          <div class="rp-hint">{{ outputFolder || (workMode === 'log' ? $t('未选择（默认与 LOG 目录相同）') : $t('未选择')) }}</div>
         </div>
 
-        <!-- 参数 -->
-        <div class="flex-col" style="gap:5px;border-top:1px solid var(--c-border-soft);padding-top:8px;">
-          <div class="flex-center" style="gap:8px;justify-content:space-between;">
-            <span class="label">{{ $t('前缀') }}</span>
-            <input class="control" style="width:118px;height:24px;" v-model="prefix" :placeholder="$t('如 opt_')" />
-          </div>
-          <div class="flex-center" style="gap:8px;justify-content:space-between;">
+        <!-- 计算资源（预设 / 内存 / 核心数） -->
+        <div class="rp-sec">
+          <div class="rp-row">
             <span class="label">{{ $t('预设') }}</span>
-            <select class="control" style="width:118px;height:24px;font-size:11px;" v-model="selectedPreset" @change="applyPreset">
-              <option v-for="(conf, name) in presetResources" :key="name" :value="name">{{ name }}</option>
+            <select class="control rp-num" style="font-size:11px;" v-model="selectedPreset" @change="applyPreset">
+              <option v-for="name in resourceNames" :key="name" :value="name">{{ name }}</option>
             </select>
           </div>
-          <div class="flex-center" style="gap:8px;justify-content:space-between;">
+          <div class="rp-row">
             <span class="label">{{ $t('内存') }}</span>
-            <input class="control" style="width:118px;height:24px;" v-model="mem" :placeholder="$t('如 20GB')" />
+            <input class="control rp-num" v-model="mem" :placeholder="$t('如 20GB')" />
           </div>
-          <div class="flex-center" style="gap:8px;justify-content:space-between;">
+          <div class="rp-row">
             <span class="label">{{ $t('核心数') }}</span>
-            <input class="control" style="width:118px;height:24px;" v-model="nproc" :placeholder="$t('如 8')" />
+            <input class="control rp-num" v-model="nproc" :placeholder="$t('如 8')" />
           </div>
+        </div>
+
+        <!-- 计算参数 -->
+        <div class="rp-sec">
           <div class="flex-col" style="gap:4px;">
             <span class="label">{{ $t('计算模式') }}</span>
-            <input class="control" style="width:100%;height:24px;" v-model="calcMode" list="calcModePresets" />
+            <input class="control rp-full" v-model="calcMode" list="calcModePresets" />
             <datalist id="calcModePresets">
               <option v-for="preset in calcModePresets" :key="preset" :value="preset" />
             </datalist>
@@ -217,23 +221,27 @@
               <option v-for="preset in basisPresets" :key="preset" :value="preset" />
             </datalist>
           </div>
+          <div class="rp-row">
+            <span class="label">{{ $t('前缀') }}</span>
+            <input class="control rp-num" v-model="prefix" :placeholder="$t('如 opt_')" />
+          </div>
         </div>
 
         <!-- LOG 模式专属：从 LOG 回填参数 -->
-        <div v-if="workMode === 'log'" class="flex-col" style="gap:6px;border-top:1px solid var(--c-border-soft);padding-top:10px;">
+        <div v-if="workMode === 'log'" class="rp-sec">
           <div class="flex-center" style="justify-content:space-between;">
             <span class="label">{{ $t('LOG 检出关键词') }}</span>
             <button class="btn" style="height:24px;padding:0 10px;font-size:12px;" @click="applyLogToParams" :disabled="!logInfo || !logInfo.route_first">{{ $t('填入参数栏') }}</button>
           </div>
-          <div style="font-size:12px;color:var(--c-text-2);word-break:break-all;min-height:16px;">{{ (logInfo && logInfo.route_first) || $t('未检出关键词行') }}</div>
-          <div class="flex-center" style="gap:8px;justify-content:space-between;">
+          <div class="rp-hint">{{ (logInfo && logInfo.route_first) || $t('未检出关键词行') }}</div>
+          <div class="rp-row">
             <span class="label">{{ $t('输出文件名') }}</span>
-            <span style="font-size:12px;color:var(--c-text-2);word-break:break-all;">{{ logOutputName || '—' }}</span>
+            <span class="rp-hint" style="text-align:right;">{{ logOutputName || '—' }}</span>
           </div>
         </div>
 
         <!-- 操作 -->
-        <div class="flex-col" style="gap:8px;border-top:1px solid var(--c-border-soft);padding-top:10px;">
+        <div class="rp-sec" style="gap:8px;padding-top:10px;">
           <template v-if="workMode === 'log'">
             <button class="btn btn-primary h-lg" @click="convertCurrentLog" :disabled="!logFile || !logPreview || running">
               {{ running ? $t('处理中...') : $t('转换当前 LOG → GJF') }}
@@ -277,6 +285,7 @@ import LogViewer from '@/components/LogViewer.vue'
 import EmptyNotice from '@/components/EmptyNotice.vue'
 import RemoteFileBrowser from '@/components/RemoteFileBrowser.vue'
 import { pickDirectory } from '@/api/dialog'
+import { resourceOf, RESOURCE_PRESET_NAMES, DEFAULT_RESOURCE_PRESET } from '@/utils/mlsPresets'
 import { t as $tr } from '@/i18n'
 const posixpath = {
   join: (...segments) => segments.filter(s => s && s !== '').join('/').replace(/\/+/g, '/')
@@ -328,14 +337,8 @@ export default {
       basis: '6-31g(d,p)',
       charge: '0',
       mult: '1',
-      selectedPreset: 'students/zstoffice',
-      presetResources: {
-        'hachimi单并行': { nproc: '10', mem: '40GB' },
-        'hachimi四并行': { nproc: '4', mem: '10GB' },
-        'Tomori八队列': { nproc: '12', mem: '12GB' },
-        'students/zstoffice': { nproc: '8', mem: '20GB' },
-        'zst106': { nproc: '24', mem: '180GB' }
-      },
+      selectedPreset: DEFAULT_RESOURCE_PRESET,
+      resourceNames: RESOURCE_PRESET_NAMES,
       calcModePresets: [
         '#p opt',
         '#p opt freq',
@@ -510,10 +513,14 @@ export default {
     },
 
     // ===== 目录内全部文件列表（确认目录用） =====
+    // GJF 模式同时接受 .mls（分子坐标文件，读入后直接按当前参数生成 GJF 内容）
     entryMatches(entry) {
       if (!entry || entry.is_dir) return false
       const n = (entry.name || '').toLowerCase()
-      return this.workMode === 'log' ? /\.(log|out)$/.test(n) : /\.gjf$/.test(n)
+      return this.workMode === 'log' ? /\.(log|out)$/.test(n) : /\.(gjf|mls)$/.test(n)
+    },
+    isMlsName(name) {
+      return /\.mls$/i.test(name || '')
     },
     entryFullPath(name) {
       if (this.mode === 'remote') return posixpath.join(this.inputFolder, name)
@@ -529,11 +536,15 @@ export default {
     onEntryClick(entry) {
       if (entry.is_dir) return                       // 目录：双击进入
       if (this.entryMatches(entry)) {
+        if (this.workMode === 'gjf' && this.isMlsName(entry.name)) {
+          this.openMlsAsGjf(entry.name)
+          return
+        }
         const idx = this.listFiles.indexOf(entry.name)
         if (idx >= 0) this.selectFile(idx)
         return
       }
-      this.addLog($tr('{0} 不是 {1} 文件，仅用于确认目录内容', { 0: entry.name, 1: this.workMode === 'log' ? '.log / .out' : '.gjf' }), '#ffa500')
+      this.addLog($tr('{0} 不是 {1} 文件，仅用于确认目录内容', { 0: entry.name, 1: this.workMode === 'log' ? '.log / .out' : '.gjf / .mls' }), '#ffa500')
     },
     onEntryDblClick(entry) {
       if (entry.is_dir) {
@@ -861,6 +872,47 @@ export default {
       }
     },
 
+    // ===== 读取 .mls（分子坐标）并按当前参数生成 GJF 内容 =====
+    // .mls 仅含坐标，没有 route 信息，因此用右侧当前参数（mem/nproc/泛函/基组/电荷/自旋）现场生成
+    async openMlsAsGjf(filename) {
+      if (!this.inputFolder) return
+      if (this.mode === 'remote') {
+        this.addLog($tr('远程目录暂不支持直接读取 .mls，请先下载到本地：{0}', { 0: filename }), '#ffa500')
+        return
+      }
+      const fullPath = `${this.inputFolder}\\${filename}`
+      const stem = filename.replace(/\.mls$/i, '')
+      try {
+        const response = await fetch(`${this.backendUrl}/api/mol/to-input`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            path: fullPath,
+            target: 'gaussian',
+            functional: this.functional,
+            basis: this.basis,
+            calc: this.calcMode,
+            mem: this.mem,
+            nproc: this.nproc,
+            charge: parseInt(this.charge || '0', 10) || 0,
+            mult: parseInt(this.mult || '1', 10) || 1,
+            filename: stem
+          })
+        })
+        const data = await response.json()
+        if (!response.ok) {
+          this.addLog($tr('读取 .mls 失败: {0}', { 0: data.detail }), '#ff6b6b')
+          return
+        }
+        this.selectedIndex = -1
+        this.currentFile = data.filename
+        this.currentContent = data.content
+        this.addLog($tr('已从 {0} 生成 {1}（{2} 个原子，保存后写入磁盘）', { 0: filename, 1: data.filename, 2: data.n_atoms }), '#7cfc00')
+      } catch (e) {
+        this.addLog($tr('读取 .mls 失败: {0}', { 0: e.message }), '#ff6b6b')
+      }
+    },
+
     // ===== 加载文件内容（远程-从缓存读取） =====
     async loadFileContentRemote(filename) {
       if (!this.sessionId) return
@@ -1079,12 +1131,10 @@ export default {
 
     // ===== 预设应用 =====
     applyPreset() {
-      const preset = this.presetResources[this.selectedPreset]
-      if (preset) {
-        this.mem = preset.mem
-        this.nproc = preset.nproc
-        this.addLog($tr('应用预设: {0}', { 0: this.selectedPreset }), '#87d2ff')
-      }
+      const preset = resourceOf(this.selectedPreset)
+      this.mem = preset.mem
+      this.nproc = preset.nproc
+      this.addLog($tr('应用预设: {0}', { 0: this.selectedPreset }), '#87d2ff')
     },
 
     // 统一的 GET + 容错 JSON 解析

@@ -12,6 +12,10 @@ from app.routers import terminal
 from app.routers import local
 from app.routers import soc
 from app.routers import scan
+from app.routers import mol
+from app.routers import tools
+from app.routers import ext
+from app.routers import analysis
 
 app = FastAPI(title="Molecular Lab Suite, MLS V26.9", version="26.9")
 
@@ -39,6 +43,10 @@ app.include_router(remote.router, prefix="/api/remote/cache")
 app.include_router(local.router)
 app.include_router(soc.router)
 app.include_router(scan.router, prefix="/api/scan", tags=["Scan Extract"])
+app.include_router(mol.router, prefix="/api/mol", tags=["Molecule"])
+app.include_router(tools.router, prefix="/api/tools", tags=["External Tools"])
+app.include_router(ext.router, prefix="/api/ext", tags=["External Tools"])
+app.include_router(analysis.router, prefix="/api/analysis", tags=["Excited-state Analysis"])
 
 @app.get("/api/health")
 async def health():

@@ -158,6 +158,14 @@
     />
 
     <LogViewer :lines="logLines" />
+
+    <ImagePreviewModal
+      v-model:visible="previewVisible"
+      :src="previewSrc"
+      :title="previewTitle"
+      :filename="previewName"
+      :initial-dir="folder"
+    />
   </div>
 </template>
 
@@ -171,13 +179,14 @@ import { storeToRefs } from 'pinia'
 import { t as $tr } from '@/i18n'
 import { PALETTE, drawAxes, drawLevel, drawEnergyLabel, font, crisp } from '@/utils/naturePlot'
 import EmptyNotice from '@/components/EmptyNotice.vue'
+import ImagePreviewModal from '@/components/ImagePreviewModal.vue'
 
 const BACKEND = `http://${__BACKEND_HOST__}:${__BACKEND_PORT__}`
 
 
 export default {
   name: 'SocView',
-  components: { LogViewer, RemoteFileBrowser, EmptyNotice },
+  components: { LogViewer, RemoteFileBrowser, EmptyNotice, ImagePreviewModal },
   setup() {
     const remoteStore = useRemoteStore()
     const { connected, sessionId, username } = storeToRefs(remoteStore)
@@ -186,6 +195,10 @@ export default {
   data() {
     return {
       folder: '',
+      previewVisible: false,
+      previewSrc: '',
+      previewTitle: '',
+      previewName: 'soc-levels.png',
       parseMode: 'local',
       remoteFolder: '',
       browserVisible: false,
@@ -504,14 +517,13 @@ export default {
     openBig() {
       const cv = this.$refs.socCanvas
       if (!cv) return
-      const win = window.open('', '_blank', 'width=900,height=1200')
-      if (win) {
-        const copy = document.createElement('canvas')
-        copy.width = cv.width; copy.height = cv.height
-        copy.getContext('2d').drawImage(cv, 0, 0)
-        win.document.write($tr('<html><head><title>SOC能级图</title></head><body style="margin:0;background:#fff;"><img style="width:100%;" src="') + copy.toDataURL('image/png') + '" /></body></html>')
-        win.document.close()
-      }
+      const copy = document.createElement('canvas')
+      copy.width = cv.width; copy.height = cv.height
+      copy.getContext('2d').drawImage(cv, 0, 0)
+      this.previewSrc = copy.toDataURL('image/png')
+      this.previewTitle = this.$t('SOC能级图')
+      this.previewName = 'soc-levels.png'
+      this.previewVisible = true
     },
     async exportExcel() {
       if (!this.maxT) return

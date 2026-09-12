@@ -55,6 +55,7 @@
 
 <script>
 import { pickDirectory } from '@/api/dialog'
+import { load3Dmol } from '@/utils/threeDmol'
 import { cssVar } from '@/theme/theme'
 import { t as $tr } from '@/i18n'
 
@@ -79,13 +80,11 @@ export default {
     }
   },
   mounted() {
-    // 加载 3Dmol.js
-    const script = document.createElement('script')
-    script.src = 'https://cdn.jsdelivr.net/npm/3dmol@2.0.0/build/3Dmol.min.js'
-    script.onload = () => {
-      this.initMol3D()
-    }
-    document.head.appendChild(script)
+    // 3Dmol 用打包进来的版本（离线可用，不加载外部 CDN）
+    load3Dmol().then((lib) => {
+      if (lib) this.initMol3D()
+      else this.addLog($tr('3D 视图加载失败（打包版 3Dmol 不可用）'), '#ff6b6b')
+    })
   },
   beforeUnmount() {
     if (this.ws) this.ws.close()

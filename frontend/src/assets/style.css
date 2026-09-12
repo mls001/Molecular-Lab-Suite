@@ -420,6 +420,40 @@ a {
 .min-h-0 { min-height: 0; }
 .h-full { height: 100%; }
 
+/* ---------- 4b. 右栏参数面板统一样式（生成输入 / 修改GJF / 提取扫描 共用） ---------- */
+.rp-sec {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  border-top: 1px solid var(--c-border-soft);
+  padding-top: 8px;
+}
+.rp-sec:first-child { border-top: none; padding-top: 0; }
+.rp-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.rp-row > .label { flex-shrink: 0; }
+/* 数值/短文本输入：统一宽度（比旧的 118px 宽约 1.5 倍） */
+.rp-num { width: 176px; min-width: 0; height: 24px; flex-shrink: 0; }
+.rp-full { width: 100%; height: 24px; }
+.rp-hint {
+  font-size: 11px;
+  color: var(--c-text-2);
+  word-break: break-all;
+  min-height: 15px;
+}
+.rp-check {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+  color: var(--c-text-2);
+  cursor: pointer;
+}
+
 /* --- 间距 --- */
 .mr-1 { margin-right: 4px; }
 .mr-2 { margin-right: 8px; }
@@ -513,6 +547,35 @@ a {
 }
 .ide-group:last-child {
   border-bottom: none;
+}
+/* ===== 轨道 / NTO / 空穴-电子 的预览格子（图片按格子自适应缩放） ===== */
+.orb-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 8px;
+}
+.orb-cell {
+  position: relative;
+  height: 220px;
+  border: 1px solid var(--c-border-soft);
+  background: #fff;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: zoom-in;
+}
+.orb-img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  display: block;
+}
+.orb-pending {
+  font-size: 12px;
+  color: var(--c-text-3);
+  text-align: center;
+  padding: 4px;
 }
 .ide-list-item {
   padding: 3px 8px;

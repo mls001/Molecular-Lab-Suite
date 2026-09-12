@@ -17,9 +17,11 @@
   },
   "devDependencies": {
     "concurrently": "^8.2.2",
+    "echarts": "^6.1.0",
     "electron": "^28.1.0",
     "electron-builder": "^24.9.1",
-    "rimraf": "^5.0.5"
+    "rimraf": "^5.0.5",
+    "xlsx": "^0.18.5"
   },
   "build": {
     "appId": "com.mls.desktop",
@@ -76,9 +78,7 @@
     }
   },
   "dependencies": {
-    "echarts": "^6.1.0",
     "electron-store": "^8.2.0",
-    "keytar": "^7.9.0",
-    "xlsx": "^0.18.5"
+    "keytar": "^7.9.0"
   }
 }

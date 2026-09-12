@@ -76,16 +76,16 @@
         </div>
 
         <!-- 输入 -->
-        <div class="flex-col" style="gap:4px;border-top:1px solid var(--c-border-soft);padding-top:8px;">
+        <div class="rp-sec">
           <div class="flex-center" style="justify-content:space-between;">
             <span class="label">{{ mode === 'remote' ? $t('远程目录') : $t('输入 LOG') }}</span>
-            <button class="btn" style="height:22px;padding:0 9px;font-size:11px;" @click="chooseInput">{{ $t('选择…') }}</button>
+            <button class="btn" style="height:24px;padding:0 10px;font-size:12px;" @click="chooseInput">{{ $t('选择…') }}</button>
           </div>
-          <div style="font-size:11px;color:var(--c-text-2);word-break:break-all;">{{ inputDisplay || $t('未选择') }}</div>
+          <div class="rp-hint">{{ inputDisplay || $t('未选择') }}</div>
           <select
             v-if="mode === 'remote' && remoteLogFiles.length"
-            class="control"
-            style="width:100%;height:24px;font-size:11px;"
+            class="control rp-full"
+            style="font-size:11px;"
             v-model="remoteLogName"
             @change="selectRemoteLog(remoteLogName)"
           >
@@ -94,62 +94,70 @@
         </div>
 
         <!-- 输出 -->
-        <div class="flex-col" style="gap:4px;border-top:1px solid var(--c-border-soft);padding-top:8px;">
+        <div class="rp-sec">
           <div class="flex-center" style="justify-content:space-between;">
             <span class="label">{{ $t('输出目录') }}</span>
-            <button class="btn" style="height:22px;padding:0 9px;font-size:11px;" @click="chooseOutput">{{ $t('选择…') }}</button>
+            <button class="btn" style="height:24px;padding:0 10px;font-size:12px;" @click="chooseOutput">{{ $t('选择…') }}</button>
           </div>
-          <div style="font-size:11px;color:var(--c-text-2);word-break:break-all;">{{ outputDisplay || $t('未选择') }}</div>
+          <div class="rp-hint">{{ outputDisplay || $t('未选择') }}</div>
+        </div>
+
+        <!-- 计算资源（预设 / 内存 / 核心数） -->
+        <div class="rp-sec">
+          <div class="rp-row">
+            <span class="label">{{ $t('预设') }}</span>
+            <select class="control rp-num" style="font-size:11px;" v-model="selectedPreset" @change="applyPreset">
+              <option v-for="name in resourceNames" :key="name" :value="name">{{ name }}</option>
+            </select>
+          </div>
+          <label class="rp-check">
+            <input type="checkbox" v-model="addResources" @change="schedulePreview(0)" /> {{ $t('添加 %mem / %nprocshared 行') }}
+          </label>
+          <div class="rp-row">
+            <span class="label">{{ $t('内存') }}</span>
+            <input class="control rp-num" v-model="mem" :disabled="!addResources" :placeholder="'%mem'" />
+          </div>
+          <div class="rp-row">
+            <span class="label">{{ $t('核心数') }}</span>
+            <input class="control rp-num" v-model="nproc" :disabled="!addResources" :placeholder="'%nprocshared'" />
+          </div>
         </div>
 
         <!-- 关键词行 -->
-        <div class="flex-col" style="gap:5px;border-top:1px solid var(--c-border-soft);padding-top:8px;">
+        <div class="rp-sec">
           <div class="flex-center" style="justify-content:space-between;">
             <span class="label">{{ $t('关键词行') }}</span>
-            <label class="flex-center" style="gap:4px;font-size:11px;color:var(--c-text-2);cursor:pointer;">
+            <label class="rp-check">
               <input type="checkbox" v-model="useLogRoute" @change="schedulePreview(0)" /> {{ $t('取用 LOG') }}
             </label>
           </div>
-          <input class="control" style="width:100%;height:24px;" v-model="route" :disabled="useLogRoute" />
+          <input class="control rp-full" v-model="route" :disabled="useLogRoute" />
         </div>
 
         <!-- 电荷 / 自旋 -->
-        <div class="flex-col" style="gap:5px;border-top:1px solid var(--c-border-soft);padding-top:8px;">
+        <div class="rp-sec">
           <div class="flex-center" style="justify-content:space-between;">
             <span class="label">{{ $t('电荷 / 自旋') }}</span>
-            <label class="flex-center" style="gap:4px;font-size:11px;color:var(--c-text-2);cursor:pointer;">
+            <label class="rp-check">
               <input type="checkbox" v-model="useLogChargeMult" @change="schedulePreview(0)" /> {{ $t('取用 LOG') }}
             </label>
           </div>
-          <div class="flex-center" style="gap:6px;">
-            <span class="label">{{ $t('电荷') }}</span>
-            <input class="control" style="width:52px;height:24px;" v-model="charge" :disabled="useLogChargeMult" />
-            <span class="label">{{ $t('自旋') }}</span>
-            <input class="control" style="width:52px;height:24px;" v-model="mult" :disabled="useLogChargeMult" />
+          <div class="flex" style="gap:6px;">
+            <input class="control" style="flex:1;min-width:0;height:24px;" v-model="charge" :disabled="useLogChargeMult" />
+            <input class="control" style="flex:1;min-width:0;height:24px;" v-model="mult" :disabled="useLogChargeMult" />
           </div>
         </div>
 
-        <!-- 资源行与命名 -->
-        <div class="flex-col" style="gap:5px;border-top:1px solid var(--c-border-soft);padding-top:8px;">
-          <label class="flex-center" style="gap:4px;font-size:12px;color:var(--c-text-2);cursor:pointer;">
-            <input type="checkbox" v-model="addResources" @change="schedulePreview(0)" /> {{ $t('添加 %mem / %nprocshared 行') }}
-          </label>
-          <div class="flex-center" style="gap:6px;justify-content:space-between;">
-            <span class="label">%mem</span>
-            <input class="control" style="width:118px;height:24px;" v-model="mem" :disabled="!addResources" />
-          </div>
-          <div class="flex-center" style="gap:6px;justify-content:space-between;">
-            <span class="label">%nprocshared</span>
-            <input class="control" style="width:118px;height:24px;" v-model="nproc" :disabled="!addResources" />
-          </div>
-          <div class="flex-center" style="gap:6px;justify-content:space-between;">
+        <!-- 文件命名 -->
+        <div class="rp-sec">
+          <div class="rp-row">
             <span class="label">{{ $t('前缀') }}</span>
-            <input class="control" style="width:118px;height:24px;" v-model="prefix" @input="schedulePreview()" />
+            <input class="control rp-num" v-model="prefix" @input="schedulePreview()" />
           </div>
         </div>
 
         <!-- 操作 -->
-        <div class="flex-col" style="gap:6px;border-top:1px solid var(--c-border-soft);padding-top:8px;">
+        <div class="rp-sec" style="gap:6px;">
           <button class="btn btn-primary h-lg" :disabled="running || !hasSource || !hasOutput || !checkedSteps.length"
                   @click="runExtract(checkedSteps)">
             {{ running ? $t('处理中...') : $t('提取选中（{n}）', { n: checkedSteps.length }) }}
@@ -181,6 +189,7 @@ import LogViewer from '@/components/LogViewer.vue'
 import RemoteFileBrowser from '@/components/RemoteFileBrowser.vue'
 import EmptyNotice from '@/components/EmptyNotice.vue'
 import { pickDirectory, pickFile } from '@/api/dialog'
+import { resourceOf, RESOURCE_PRESET_NAMES, DEFAULT_RESOURCE_PRESET } from '@/utils/mlsPresets'
 import { useRemoteStore } from '@/stores/remote'
 import { storeToRefs } from 'pinia'
 import { t as $tr } from '@/i18n'
@@ -227,6 +236,8 @@ export default {
       useLogChargeMult: true,
       mem: '20GB',
       nproc: '8',
+      selectedPreset: DEFAULT_RESOURCE_PRESET,
+      resourceNames: RESOURCE_PRESET_NAMES,
       addResources: true,
       running: false,
       parsedOnce: false,     // 已解析过 → 中间窗口显示"该文件内不含扫描构象信息"
@@ -274,6 +285,15 @@ export default {
     addLog(text, color = '#d4d4d4') {
       this.logLines.push({ text, color })
       if (this.logLines.length > 200) this.logLines.shift()
+    },
+    // 计算资源预设（与「生成输入」「修改GJF」共用同一份）
+    applyPreset() {
+      const p = resourceOf(this.selectedPreset)
+      this.mem = p.mem
+      this.nproc = p.nproc
+      this.addResources = true
+      this.schedulePreview(0)
+      this.addLog($tr('应用预设: {0}', { 0: this.selectedPreset }), '#87d2ff')
     },
 
     async postJson(url, body) {

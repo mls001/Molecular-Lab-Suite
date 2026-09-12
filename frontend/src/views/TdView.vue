@@ -170,6 +170,15 @@
 
     <!-- 日志区域 -->
     <LogViewer :lines="logLines" />
+
+    <!-- 图片预览（应用内弹窗，替代 window.open） -->
+    <ImagePreviewModal
+      v-model:visible="previewVisible"
+      :src="previewSrc"
+      :title="previewTitle"
+      :filename="previewName"
+      :initial-dir="folder"
+    />
   </div>
 </template>
 
@@ -183,12 +192,13 @@ import { useRemoteStore } from '@/stores/remote'
 import { storeToRefs } from 'pinia'
 import { t as $tr } from '@/i18n'
 import EmptyNotice from '@/components/EmptyNotice.vue'
+import ImagePreviewModal from '@/components/ImagePreviewModal.vue'
 import { PALETTE, drawAxes, drawLevel, drawEnergyLabel, font, crisp } from '@/utils/naturePlot'
 
 
 export default {
   name: 'TdView',
-  components: { LogViewer, RemoteFileBrowser, EmptyNotice },
+  components: { LogViewer, RemoteFileBrowser, EmptyNotice, ImagePreviewModal },
   mixins: [scrollCache],
   setup() {
     const remoteStore = useRemoteStore()
@@ -212,6 +222,10 @@ export default {
       allData: [],
       selectedIndex: 0,
       levelBigUrl: '',
+      previewVisible: false,
+      previewSrc: '',
+      previewTitle: '',
+      previewName: 'td-levels.png',
       tdLayers: [],        // [{ s: 'S1', t: 'T2' }]，为空 = 绘制全部激发态
       _pageActive: true,
     }
@@ -427,18 +441,10 @@ export default {
 
     openLevelPopup() {
       if (!this.levelBigUrl) return
-      const win = window.open('', '_blank', 'width=1100,height=1900')
-      if (win) {
-        win.document.write(
-          $tr('<html><head><title>激发态能级图</title></head>') +
-          '<body style="margin:0;background:#ffffff;">' +
-          `<img src="${this.levelBigUrl}" style="width:100%;height:auto;" />` +
-          '</body></html>'
-        )
-        win.document.close()
-      } else {
-        alert($tr('无法打开新窗口，请允许弹出窗口后再试'))
-      }
+      this.previewTitle = this.$t('激发态能级图')
+      this.previewName = 'td-levels.png'
+      this.previewSrc = this.levelBigUrl
+      this.previewVisible = true
     },
 
     async chooseParseSource() {

@@ -24,6 +24,7 @@ import app.routers.preset
 import app.routers.terminal
 import app.routers.local
 import app.routers.soc
+import app.routers.mol
 import cryptography
 import cryptography.fernet
 import cryptography.hazmat

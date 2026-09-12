@@ -91,6 +91,7 @@
 
 <script>
 import { useRemoteStore } from '@/stores/remote'
+import { useProgressStore } from '@/stores/progress'
 import { t as $tr } from '@/i18n'
 
 const BACKEND = `http://${__BACKEND_HOST__}:${__BACKEND_PORT__}`
@@ -233,12 +234,15 @@ export default {
       const dir = this.localPath
       const rd = this.remotePath
       this.busy = true; this.progress = 0
+      const gp = useProgressStore()
+      gp.start($tr('上传 {0} 个文件…', { 0: names.length }))
       let done = 0, ok = 0
       let lastErr = ''
       for (const name of names) {
         const ent = this.localEntries.find(x => x.name === name)
         const lp = `${dir.replace(/[\\/]+$/, '')}\\${name}`
         this.progressText = $tr('上传中 {0}（{1}/{2}）', { 0: name, 1: done + 1, 2: names.length })
+        gp.step(done, names.length, this.progressText)
         try {
           let r
           if (ent && ent.is_dir) {
@@ -252,8 +256,10 @@ export default {
           else lastErr = d.detail || `HTTP ${r.status}`
         } catch (e) { lastErr = e.message || $tr('网络错误') }
         done++; this.progress = Math.round((done / names.length) * 100)
+        gp.step(done, names.length, this.progressText)
       }
       this.progressText = lastErr && ok < names.length ? $tr('上传：成功 {0}/{1}（{2}）', { 0: ok, 1: names.length, 2: lastErr }) : $tr('上传完成：成功 {0}/{1}', { 0: ok, 1: names.length })
+      gp.finish(this.progressText)
       this.busy = false
       this.clearSel(); this.loadLocal(); this.loadRemote()
       setTimeout(() => { this.progress = 0; this.progressText = '' }, 2500)
@@ -268,12 +274,15 @@ export default {
       const rd = this.remotePath
       const dir = this.localPath
       this.busy = true; this.progress = 0
+      const gp = useProgressStore()
+      gp.start($tr('下载 {0} 个文件…', { 0: names.length }))
       let done = 0, ok = 0
       let lastErr = ''
       for (const name of names) {
         const ent = this.remoteEntries.find(x => x.name === name)
         const p = posixJoin(rd, name)
         this.progressText = $tr('下载中 {0}（{1}/{2}）', { 0: name, 1: done + 1, 2: names.length })
+        gp.step(done, names.length, this.progressText)
         try {
           let r
           if (ent && ent.is_dir) {
@@ -286,8 +295,10 @@ export default {
           else lastErr = d.detail || `HTTP ${r.status}`
         } catch (e) { lastErr = e.message || $tr('网络错误') }
         done++; this.progress = Math.round((done / names.length) * 100)
+        gp.step(done, names.length, this.progressText)
       }
       this.progressText = lastErr && ok < names.length ? $tr('下载：成功 {0}/{1}（{2}）', { 0: ok, 1: names.length, 2: lastErr }) : $tr('下载完成：成功 {0}/{1}', { 0: ok, 1: names.length })
+      gp.finish(this.progressText)
       this.busy = false
       this.clearSel(); this.loadLocal(); this.loadRemote()
       setTimeout(() => { this.progress = 0; this.progressText = '' }, 2500)
