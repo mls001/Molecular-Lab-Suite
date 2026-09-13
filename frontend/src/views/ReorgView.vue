@@ -77,15 +77,15 @@
               </div>
             </div>
             <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;">
-              <div class="flex-col" style="gap:2px;"><span style="font-size:11px;color:var(--c-text-3);">{{ $t('g（基态泛函）') }}</span><input class="control" style="width:100%;height:28px;" v-model="g" placeholder="b3lyp" /></div>
-              <div class="flex-col" style="gap:2px;"><span style="font-size:11px;color:var(--c-text-3);">{{ $t('o（激发态泛函）') }}</span><input class="control" style="width:100%;height:28px;" v-model="o" placeholder="b3lyp/G" /></div>
-              <div class="flex-col" style="gap:2px;"><span style="font-size:11px;color:var(--c-text-3);">{{ $t('gb（基组）') }}</span><input class="control" style="width:100%;height:28px;" v-model="gb" placeholder="6-31G(d,p)" /></div>
-              <div class="flex-col" style="gap:2px;"><span style="font-size:11px;color:var(--c-text-3);">{{ $t('ob（激发态基组）') }}</span><input class="control" style="width:100%;height:28px;" v-model="ob" :placeholder="$t('可选')" /></div>
+              <div class="flex-col" style="gap:2px;"><span style="font-size:11px;color:var(--c-text-3);">{{ $t('g（高斯泛函）') }}</span><input class="control" style="width:100%;height:28px;" v-model="g" placeholder="b3lyp" /></div>
+              <div class="flex-col" style="gap:2px;"><span style="font-size:11px;color:var(--c-text-3);">{{ $t('gb（高斯基组）') }}</span><input class="control" style="width:100%;height:28px;" v-model="gb" placeholder="6-31G(d,p)" /></div>
+              <div class="flex-col" style="gap:2px;"><span style="font-size:11px;color:var(--c-text-3);">{{ $t('o（ORCA 泛函）') }}</span><input class="control" style="width:100%;height:28px;" v-model="o" placeholder="b3lyp/G" /></div>
+              <div class="flex-col" style="gap:2px;"><span style="font-size:11px;color:var(--c-text-3);">{{ $t('ob（ORCA 基组）') }}</span><input class="control" style="width:100%;height:28px;" v-model="ob" :placeholder="$t('可选')" /></div>
               <div class="flex-col" style="gap:2px;"><span style="font-size:11px;color:var(--c-text-3);">root</span><input class="control" style="width:100%;height:28px;" v-model="root" placeholder="1" /></div>
-              <div class="flex-col" style="gap:2px;"><span style="font-size:11px;color:var(--c-text-3);">sm</span><input class="control" style="width:100%;height:28px;" v-model="sm" placeholder="1" /></div>
-              <div class="flex-col" style="gap:2px;"><span style="font-size:11px;color:var(--c-text-3);">c</span><input class="control" style="width:100%;height:28px;" v-model="c" placeholder="0" /></div>
+              <div class="flex-col" style="gap:2px;"><span style="font-size:11px;color:var(--c-text-3);">{{ $t('sm（自旋多重度）') }}</span><input class="control" style="width:100%;height:28px;" v-model="sm" placeholder="1" /></div>
+              <div class="flex-col" style="gap:2px;"><span style="font-size:11px;color:var(--c-text-3);">{{ $t('c（电荷）') }}</span><input class="control" style="width:100%;height:28px;" v-model="c" placeholder="0" /></div>
               <div class="flex-col" style="gap:2px;">
-                <span style="font-size:11px;color:var(--c-text-3);">{{ $t('coord（建议默认INTERNAL）') }}</span>
+                <span style="font-size:11px;color:var(--c-text-3);">coord</span>
                 <select class="control" style="width:100%;height:28px;" v-model="coord">
                   <option value="CARTESIAN">CARTESIAN</option>
                   <option value="INTERNAL">INTERNAL</option>

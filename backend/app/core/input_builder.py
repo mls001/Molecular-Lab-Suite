@@ -7,52 +7,45 @@ GAUSSIAN_MODES = [
     '#p freq',
     '#p td=(50-50,nstates=10)',
     '#p td opt',
-    '#p td opt freq',
-    '#p sp',
+    '#p td opt freq'
 ]
 
 # ORCA 预设：keywords 拼进 `!` 行，blocks 为额外 %block
 ORCA_PRESETS = [
     {
         'id': 'soc_tddft',
-        'label': 'SOC-TDDFT（含 dosoc，发光/自旋轨道耦合）',
+        'label': 'SOC-TDDFT',
         'keywords': 'miniprint tightSCF',
         'blocks': [('%tddft', ['nroots {nstates}', 'dosoc true', 'tda false', 'printlevel 3'])],
     },
     {
         'id': 'tddft',
-        'label': 'TD-DFT（激发态）',
+        'label': 'TD-DFT',
         'keywords': 'miniprint tightSCF',
         'blocks': [('%tddft', ['nroots {nstates}', 'tda false', 'printlevel 3'])],
     },
     {
         'id': 'opt_freq',
-        'label': 'Opt + Freq（几何优化 + 频率）',
+        'label': 'Opt + Freq',
         'keywords': 'Opt Freq tightSCF',
         'blocks': [],
     },
     {
         'id': 'opt',
-        'label': 'Opt（几何优化）',
+        'label': 'Opt',
         'keywords': 'Opt tightSCF',
         'blocks': [],
     },
     {
         'id': 'opt_ts',
-        'label': 'OptTS + Freq（过渡态）',
+        'label': 'OptTS + Freq',
         'keywords': 'OptTS Freq tightSCF',
         'blocks': [],
     },
     {
         'id': 'freq',
-        'label': 'Freq（频率/重组能）',
+        'label': 'Freq',
         'keywords': 'Freq tightSCF',
-        'blocks': [],
-    },
-    {
-        'id': 'sp',
-        'label': 'Single Point（单点能）',
-        'keywords': 'tightSCF',
         'blocks': [],
     },
 ]

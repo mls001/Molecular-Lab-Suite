@@ -10,7 +10,6 @@
     <div class="rp-hint" style="word-break:break-all;">{{ label }}</div>
     <template v-if="blocked">
       <div class="rp-hint" style="color:var(--c-danger);">{{ info.hint }}</div>
-      <div v-if="remoteCache" class="rp-hint">{{ $t('生成时会自动从远程下载同名的 .fchk / .wfn / .wfx / .gbw 等波函数文件') }}</div>
       <div v-if="info.chk" class="rp-hint">{{ $t('发现同名 .chk：{0}', { 0: baseName(info.chk) }) }}</div>
       <!-- 名字对不上但同目录/附近确实有波函数文件时，列出来给用户点选（不自动替换，避免用错分子） -->
       <div v-if="others.length" class="rp-hint">{{ $t('附近的其它波函数文件（点一下就用它）：') }}</div>
@@ -60,7 +59,16 @@ export default {
     }
   },
   watch: {
-    sourcePath() { this.triedRemote = false; this.info = null; this.reload() },
+    // flush:'post' —— 必须等父级这一轮渲染把新的 source-path / v-model 都传下来后再预检；
+    // 否则会拿着上一个文件的波函数路径去预检（切文件时波函数不跟着换的根因）
+    sourcePath: {
+      flush: 'post',
+      handler() {
+        this.triedRemote = false
+        this.info = null
+        this.reload()
+      }
+    },
     blocked(val) { this.$emit('blocked', val) }
   },
   methods: {

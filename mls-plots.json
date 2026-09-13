@@ -1,0 +1,143 @@
+{
+  "_说明": "MLS 绘图配置：改这里就能改绘图风格/脚本/参数，保存后下次绘制生效（不用改代码）",
+  "default_style": "art_noshadow",
+  "styles": {
+    "standard": {
+      "vmd": [],
+      "tachyon": [
+        "{scene}",
+        "-format",
+        "BMP",
+        "-o",
+        "{bmp}",
+        "-trans_raster3d",
+        "-res",
+        "{w}",
+        "{h}",
+        "-numthreads",
+        "4",
+        "-aasamples",
+        "24",
+        "-mediumshade"
+      ],
+      "size": [
+        1600,
+        1200
+      ]
+    },
+    "art": {
+      "vmd": [
+        "color Name C tan",
+        "color change rgb tan 0.700000 0.560000 0.360000",
+        "material change mirror Opaque 0.15",
+        "material change outline Opaque 4.000000",
+        "material change outlinewidth Opaque 0.5",
+        "material change ambient Glossy 0.1",
+        "material change diffuse Glossy 0.600000",
+        "material change opacity Glossy 0.75",
+        "material change ambient Opaque 0.08",
+        "material change mirror Opaque 0.0",
+        "material change shininess Glossy 1.0",
+        "mol modcolor 1 top ColorID 12",
+        "mol modcolor 2 top ColorID 22",
+        "display distance -7.0",
+        "display height 10",
+        "light 3 on"
+      ],
+      "tachyon": [
+        "{scene}",
+        "-format",
+        "BMP",
+        "-o",
+        "{bmp}",
+        "-trans_raster3d",
+        "-res",
+        "{w}",
+        "{h}",
+        "-fullshade",
+        "-numthreads",
+        "4",
+        "-aasamples",
+        "24"
+      ],
+      "size": [
+        1400,
+        1050
+      ]
+    },
+    "art_noshadow": {
+      "vmd": [
+        "color Name C tan",
+        "color change rgb tan 0.700000 0.560000 0.360000",
+        "material change mirror Opaque 0.15",
+        "material change outline Opaque 4.000000",
+        "material change outlinewidth Opaque 0.5",
+        "material change ambient Glossy 0.1",
+        "material change diffuse Glossy 0.600000",
+        "material change opacity Glossy 0.75",
+        "material change ambient Opaque 0.08",
+        "material change mirror Opaque 0.0",
+        "material change shininess Glossy 1.0",
+        "mol modcolor 1 top ColorID 12",
+        "mol modcolor 2 top ColorID 22",
+        "display distance -7.0",
+        "display height 10",
+        "light 3 on"
+      ],
+      "tachyon": [
+        "{scene}",
+        "-format",
+        "BMP",
+        "-o",
+        "{bmp}",
+        "-trans_raster3d",
+        "-res",
+        "{w}",
+        "{h}",
+        "-mediumshade",
+        "-numthreads",
+        "4",
+        "-aasamples",
+        "24"
+      ],
+      "size": [
+        1400,
+        1050
+      ]
+    }
+  },
+  "vmd_template": [
+    "mol delete all",
+    "mol new {cub} type cube",
+    "mol modstyle 0 top CPK 0.800000 0.300000 22.000000 22.000000",
+    "mol addrep top",
+    "mol modstyle 1 top Isosurface {iso} 0 0 0 1 1",
+    "mol modcolor 1 top ColorID 1",
+    "mol modmaterial 1 top Glossy",
+    "mol addrep top",
+    "mol modstyle 2 top Isosurface -{iso} 0 0 0 1 1",
+    "mol modcolor 2 top ColorID 0",
+    "mol modmaterial 2 top Glossy",
+    "color Display Background white",
+    "display depthcue off",
+    "axes location Off",
+    "display resize {w} {h}",
+    "render Tachyon {scene}"
+  ],
+  "overlay_proc": "proc mls_overlay {cub1 cub2 scene w h iso transparent spheres material} {\n  mol delete all\n  color Display Background white\n  display depthcue off\n  axes location Off\n  color Name C tan\n  color change rgb tan 0.700000 0.560000 0.360000\n  material change mirror Opaque 0.15\n  material change outline Opaque 4.000000\n  material change outlinewidth Opaque 0.5\n  material change ambient Glossy 0.1\n  material change diffuse Glossy 0.600000\n  material change opacity Glossy 0.75\n  material change shininess Glossy 1.0\n  # Translucent：密度等值面用（低环境光、无高光，避免过曝又能看见内部质心）\n  material change ambient Translucent 0.05\n  material change diffuse Translucent 0.35\n  material change specular Translucent 0.0\n  material change shininess Translucent 0.0\n  material change opacity Translucent 0.25\n  if {$material eq \"Glossy\"} { light 3 on }\n  if {$cub1 ne \"\"} {\n    mol new $cub1 type cube\n    mol modstyle 0 top CPK 0.800000 0.300000 22.000000 22.000000\n    mol addrep top\n    mol modstyle 1 top Isosurface $iso 0 0 0 1 1\n    mol modcolor 1 top ColorID 12\n    mol modmaterial 1 top $material\n  }\n  if {$cub2 ne \"\"} {\n    mol new $cub2 type cube\n    mol modstyle 0 top CPK 0.800000 0.300000 22.000000 22.000000\n    mol addrep top\n    mol modstyle 1 top Isosurface $iso 0 0 0 1 1\n    mol modcolor 1 top ColorID 22\n    mol modmaterial 1 top $material\n  }\n  if {$transparent} {\n    set op {opacity_single}\n    if {$cub2 ne \"\"} { set op {opacity_two} }\n    material change opacity $material $op\n    material change ambient $material 0.04\n  }\n  foreach s $spheres {\n    draw color [lindex $s 3]\n    draw sphere [list [lindex $s 0] [lindex $s 1] [lindex $s 2]] radius {sphere_radius} resolution 24\n  }\n  display distance -7.0\n  display height 10\n  display resize $w $h\n  render Tachyon $scene\n}\n",
+  "multiwfn_template": [
+    "200",
+    "3",
+    "{orb}",
+    "{grid}",
+    "1"
+  ],
+  "hole_electron": {
+    "iso": 0.0005,
+    "material": "Translucent",
+    "trans_mode": "trans_vmd",
+    "sphere_radius": 0.35,
+    "opacity_single": 0.3,
+    "opacity_two": 0.3
+  }
+}

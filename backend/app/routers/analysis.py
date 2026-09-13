@@ -21,12 +21,18 @@ from typing import List, Optional
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
+from app.core import plot_config
 from app.routers.ext import (_bmp_or_tga_to_png, _expected_cubes, _run, _run_multiwfn,
                              _tail, _tcl_path, annotate_png, cleanup_scratch, find_program,
-                             move_product, product_dir, resolve_wavefn, safe_name, scan_source,
-                             VMD_STYLES)
+                             move_product, pic_dir, product_dir, product_dirs, resolve_wavefn,
+                             safe_name, scan_source)
+from app.routers.tools import find_in_path
 
 router = APIRouter()
+
+# 产物目录后缀：NTO → <分子名>-NTOs/，空穴-电子 → <分子名>-HoleElectron/，图片统一再进 PIC/
+SUFFIX_NTO = '-NTOs'
+SUFFIX_HE = '-HoleElectron'
 
 # 空穴-电子导出选项 → Multiwfn 里要敲的按键
 HE_EXPORTS = {
@@ -206,8 +212,8 @@ class HoleElectronRequest(AnalysisRequest):
     centroids: bool = False                       # 叠加图里标出空穴/电子质心
 
 
-def _prepare(req) -> tuple:
-    """公共准备：路径/程序/波函数来源；产物目录固定为 <工作目录>/<分子文件名>/"""
+def _prepare(req, suffix: str = '') -> tuple:
+    """公共准备：路径/程序/波函数来源；产物目录固定为 <工作目录>/<分子名><后缀>/"""
     if not req.source or not os.path.isfile(req.source):
         raise HTTPException(status_code=404, detail=f'文件不存在: {req.source}')
     work_dir = req.out_dir or os.path.dirname(os.path.abspath(req.source))
@@ -216,7 +222,7 @@ def _prepare(req) -> tuple:
         os.makedirs(work_dir, exist_ok=True)
     except OSError as e:
         raise HTTPException(status_code=400, detail=f'无法创建目录: {e}')
-    out_dir = product_dir(work_dir, stem)
+    out_dir = product_dir(work_dir, stem + suffix)
     exe = req.multiwfn_exe or find_program(req.multiwfn_dir, 'multiwfn')
     if not exe or not os.path.isfile(exe):
         raise HTTPException(status_code=400, detail='没找到 Multiwfn 可执行文件，请先在右上角「外部程序」里配置目录')
@@ -236,9 +242,13 @@ def _states_of(req) -> List[int]:
 # ============ NTO 分析 ============
 
 @router.post("/nto")
-async def nto_analysis(req: NtoRequest):
-    """NTO 分析（sobereva.com/377）：输出本征值 + 可选导出 NTO 并生成前 N 对轨道 cube"""
-    src, out_dir, exe, notes, info = _prepare(req)
+def nto_analysis(req: NtoRequest):
+    """NTO 分析（sobereva.com/377）：输出本征值 + 可选导出 NTO 并生成前 N 对轨道 cube
+
+    注意这里是同步函数：FastAPI 会把它放到线程池里跑，Multiwfn 阻塞时不会卡住
+    整个事件循环（否则一边绘图、一边切文件/预检都会排队等到绘图结束）。
+    """
+    src, out_dir, exe, notes, info = _prepare(req, SUFFIX_NTO)
     states = _states_of(req)
     fmt = (req.export_format or 'mwfn').lower()
     fmt_key = {'molden': '1', 'fch': '2', 'mwfn': '3'}.get(fmt, '3')
@@ -384,9 +394,12 @@ def _he_script(source: str, state: int, grid: int, exports: List[str]) -> List[s
 
 
 @router.post("/hole-electron")
-async def hole_electron(req: HoleElectronRequest):
-    """空穴-电子分析（sobereva.com/434）：定量指标 + 空穴/电子/重叠/CDD/Chole/Cele 的 cube"""
-    src, out_dir, exe, notes, info = _prepare(req)
+def hole_electron(req: HoleElectronRequest):
+    """空穴-电子分析（sobereva.com/434）：定量指标 + 空穴/电子/重叠/CDD/Chole/Cele 的 cube
+
+    同 /nto：同步函数 → 走线程池，多个体系的绘制可以并行，界面也不会被卡住。
+    """
+    src, out_dir, exe, notes, info = _prepare(req, SUFFIX_HE)
     states = _states_of(req)
     base = safe_name(os.path.splitext(os.path.basename(req.source))[0])
     logs, results = [], []
@@ -427,52 +440,8 @@ async def hole_electron(req: HoleElectronRequest):
 
 # ============ 叠加图（空穴+电子 / Chole+Cele） ============
 
-OVERLAY_PROC = """proc mls_overlay {cub1 cub2 scene w h iso transparent spheres} {
-  mol delete all
-  color Display Background white
-  display depthcue off
-  axes location Off
-  color Name C tan
-  color change rgb tan 0.700000 0.560000 0.360000
-  material change mirror Opaque 0.15
-  material change outline Opaque 4.000000
-  material change outlinewidth Opaque 0.5
-  material change ambient Glossy 0.1
-  material change diffuse Glossy 0.600000
-  material change opacity Glossy 0.75
-  material change shininess Glossy 1.0
-  light 3 on
-  if {$cub1 ne ""} {
-    mol new $cub1 type cube
-    mol modstyle 0 top CPK 0.800000 0.300000 22.000000 22.000000
-    mol addrep top
-    mol modstyle 1 top Isosurface $iso 0 0 0 1 1
-    mol modcolor 1 top ColorID 12
-    mol modmaterial 1 top Glossy
-  }
-  if {$cub2 ne ""} {
-    mol new $cub2 type cube
-    mol modstyle 0 top CPK 0.800000 0.300000 22.000000 22.000000
-    mol addrep top
-    mol modstyle 1 top Isosurface $iso 0 0 0 1 1
-    mol modcolor 1 top ColorID 22
-    mol modmaterial 1 top Glossy
-  }
-  if {$transparent} {
-    material change opacity Glossy 0.40
-    material change ambient Glossy 0.25
-  }
-  foreach s $spheres {
-    draw color [lindex $s 3]
-    draw sphere [list [lindex $s 0] [lindex $s 1] [lindex $s 2]] radius 0.25 resolution 20
-  }
-  display distance -7.0
-  display height 10
-  display resize $w $h
-  render Tachyon $scene
-}
-"""
-
+# VMD 叠加脚本来自软件根目录 mls-plots.json 的 overlay_proc（质心球半径、透明度也在那里调），
+# 见 app/core/plot_config.py。这里不再内置一份副本，避免两处不一致。
 
 class OverlayRequest(BaseModel):
     out_dir: str
@@ -480,8 +449,10 @@ class OverlayRequest(BaseModel):
     pairs: List[dict] = []            # [{label, cub1, cub2?, note?, spheres?}]
     size: List[int] = []
     iso: float = 0.02
-    style: str = 'art'
-    transparent: bool = False         # 等值面半透明（Cele/Chole 要看见质心点时打开）
+    style: str = 'art_noshadow'       # art_noshadow（默认，无阴影）| art（带阴影）| standard
+    transparent: bool = False         # 等值面半透明（默认值；单张图可用 pair 里的 transparent 覆盖）
+    material: str = 'Glossy'          # Glossy（艺术级）/ Translucent（密度等值面）；pair 里可单独指定
+    trans_mode: str = ''              # 覆盖 tachyon 的透明选项：trans_raster3d / trans_vmd
     centroids: bool = False           # 用 pair 里的 chole/cele 画质心球
     vmd_dir: str = ''
     vmd_exe: str = ''
@@ -490,17 +461,20 @@ class OverlayRequest(BaseModel):
 
 
 @router.post("/overlay")
-async def overlay(req: OverlayRequest):
-    """把 cube 画成图（可两张叠加），支持半透明等值面与质心标注（空穴绿 + 电子蓝）
+def overlay(req: OverlayRequest):
+    """把 cube 画成图（可两张叠加），支持半透明等值面与质心标注；图片进 产物目录/PIC/
 
-    pairs 里 cub2 可以不给（只画一张）；spheres 是 [[x,y,z,color], ...] 的球列表。
+    同步函数 → 线程池执行，多个文件可以并行绘制。pairs 里 cub2 可以不给（只画一张）；
+    spheres 是 [[x,y,z,color], ...] 的球列表；trans_mode 可选 trans_raster3d / trans_vmd；
+    每张图还能单独给 transparent / material（例如只让 Chole/Cele 透明，其余不透明）。
     """
     pairs = [p for p in req.pairs if p.get('cub1') and os.path.isfile(p['cub1'])]
     if not pairs:
         raise HTTPException(status_code=400, detail='没有可渲染的 cube 文件')
     work_dir = req.out_dir or os.path.dirname(pairs[0]['cub1'])
     folder = safe_name(req.folder_name or os.path.basename(work_dir.rstrip('\\/')))
-    out_dir = product_dir(work_dir, folder)
+    main_dir = product_dir(work_dir, folder)
+    out_dir = pic_dir(main_dir)
     exe = req.vmd_exe or find_program(req.vmd_dir, 'vmd')
     if not exe or not os.path.isfile(exe):
         raise HTTPException(status_code=400, detail='没找到 VMD 可执行文件，请先在右上角「外部程序」里配置目录')
@@ -512,12 +486,28 @@ async def overlay(req: OverlayRequest):
             tachyon_exe = p
             break
     if not tachyon_exe:
-        from app.routers.tools import find_in_path
         tachyon_exe = find_in_path('tachyon')
-    style_lines, style_tachyon, style_size = VMD_STYLES.get(req.style, VMD_STYLES['art'])
-    w, h = (req.size or list(style_size))[:2]
-    tpl_t = req.tachyon or style_tachyon
+    styles = plot_config.vmd_styles()                  # 风格来自 mls-plots.json
+    fallback = (styles.get(plot_config.default_style()) or styles.get('art_noshadow')
+                or styles.get('art') or styles.get('standard')
+                or ([], plot_config.DEFAULT_TACHYON, [1600, 1200]))
+    _style_lines, style_tachyon, style_size = styles.get(req.style) or fallback
+    # 透明选项可换（-trans_vmd 比 -trans_raster3d 更不容易过曝）
+    tachyon_args = plot_config.apply_trans_mode(style_tachyon, req.trans_mode)
+    w, h = (req.size or list(style_size or [1600, 1200]))[:2]
+    tpl_t = req.tachyon or tachyon_args                 # 前端没给参数时，用（可能换过透明模式的）风格参数
     jobs, results, logs = [], [], []
+    MATERIALS = ('Glossy', 'Translucent', 'Opaque', 'EdgyGlass', 'GlassBubble')
+
+    def mat_of(p: dict) -> str:
+        """每张图可以单独指定材质（透明等值面只给 Chole/Cele 用，其余保持不透明）"""
+        m = p.get('material') or req.material
+        return m if m in MATERIALS else 'Glossy'
+
+    def trans_of(p: dict) -> bool:
+        v = p.get('transparent')
+        return bool(req.transparent if v is None else v)
+
     for i, p in enumerate(pairs[:24]):
         stem = safe_name(p.get('label') or f'overlay{i + 1}', f'overlay{i + 1}')
         # 质心球：显式给的 spheres 优先；否则按 centroids 开关用 chole/cele（紫=空穴、橙=电子）
@@ -533,15 +523,16 @@ async def overlay(req: OverlayRequest):
                 spheres.append([ce[0], ce[1], ce[2], 'orange'])
         jobs.append({'label': stem, 'cub1': p['cub1'], 'cub2': p.get('cub2') or '',
                      'note': p.get('note') or '', 'spheres': spheres,
+                     'material': mat_of(p), 'transparent': trans_of(p),
                      'scene': os.path.join(out_dir, f'_mls_{stem}.dat'),
                      'bmp': os.path.join(out_dir, f'_mls_{stem}.bmp'),
                      'png': os.path.join(out_dir, f'{stem}.png')})
-    lines = [OVERLAY_PROC]
+    lines = [plot_config.overlay_proc()]               # 叠加脚本（含质心球半径/透明度）来自 mls-plots.json
     for j in jobs:
         sph = ' '.join('{{{0} {1} {2} {3}}}'.format(s[0], s[1], s[2], s[3]) for s in j['spheres'])
-        lines.append('mls_overlay {{{0}}} {{{1}}} {2} {3} {4} {5} {6} {{{7}}}'.format(
+        lines.append('mls_overlay {{{0}}} {{{1}}} {2} {3} {4} {5} {6} {{{7}}} {8}'.format(
             _tcl_path(j['cub1']), _tcl_path(j['cub2']), os.path.basename(j['scene']),
-            w, h, req.iso, 1 if req.transparent else 0, sph))
+            w, h, req.iso, 1 if j['transparent'] else 0, sph, j['material']))
     lines.append('quit')
     script_path = os.path.join(out_dir, '_mls_overlay.vmd')
     with open(script_path, 'w', encoding='utf-8') as f:
@@ -556,6 +547,7 @@ async def overlay(req: OverlayRequest):
             args = [tachyon_exe] + [str(a).replace('{scene}', os.path.basename(j['scene']))
                                     .replace('{bmp}', os.path.basename(j['bmp']))
                                     .replace('{w}', str(w)).replace('{h}', str(h)) for a in tpl_t]
+            logs.append(f'--- tachyon 参数：{" ".join(str(a) for a in args[1:])} ---')
             code2, out2 = _run(args, out_dir, timeout=req.timeout)
             logs.append(f'--- tachyon {j["label"]}（返回码 {code2}）---\n{_tail(out2, 6)}')
             if os.path.isfile(j['bmp']) and _bmp_or_tga_to_png(j['bmp'], j['png']):
@@ -637,7 +629,7 @@ def parse_excited_states(text: str):
 
 
 @router.get("/states")
-async def excited_states(path: str = '', wavefn: str = ''):
+def excited_states(path: str = '', wavefn: str = ''):
     """从输出文件里直接列出激发态（Gaussian / ORCA），供界面勾选；顺便预检波函数文件"""
     if not path or not os.path.isfile(path):
         raise HTTPException(status_code=404, detail=f'文件不存在: {path}')

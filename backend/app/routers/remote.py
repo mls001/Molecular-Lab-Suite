@@ -13,7 +13,9 @@ router = APIRouter()
 ssh_sessions = {}
 
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
-CACHE_ROOT = os.path.join(PROJECT_ROOT, "cache")
+# 远程解析缓存：优先放用户数据目录（MLS_USER_DATA，安装目录只读时也能写；退出时由主进程清理），
+# 开发环境没有该环境变量时退回项目根目录下的 cache/
+CACHE_ROOT = os.path.join(os.environ.get('MLS_USER_DATA') or PROJECT_ROOT, 'cache')
 
 
 def get_cache_dir(session_id: str) -> str:

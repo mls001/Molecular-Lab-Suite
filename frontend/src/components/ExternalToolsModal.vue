@@ -29,7 +29,6 @@
             {{ $t('没检测到 {0}：请填上面的目录，或把程序所在目录加入系统环境变量 PATH', { 0: k.label }) }}
           </div>
         </div>
-        <div class="rp-hint" style="margin-top:6px;">{{ $t('配置后可在后续版本里直接用 Multiwfn / VMD 做分析与绘图') }}</div>
       </div>
 
       <div class="xt-foot">

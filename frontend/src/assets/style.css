@@ -577,6 +577,14 @@ a {
   text-align: center;
   padding: 4px;
 }
+/* 左侧文件列表里"该文件正在生成/绘制"的小标记（允许多个文件同时跑） */
+.orb-busy {
+  margin-left: 6px;
+  padding: 0 4px;
+  font-size: 11px;
+  color: var(--c-accent);
+  border: 1px solid var(--c-border-soft);
+}
 .ide-list-item {
   padding: 3px 8px;
   cursor: pointer;

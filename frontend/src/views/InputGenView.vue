@@ -235,6 +235,8 @@ export default {
       outFilename: '',
       outFolder: '',
       busy: false,
+      _storeRev: -1,        // 已经载入过的「分子结构」页分子版本
+      _ready: false,        // 预设读完没有（activated 钩子据此判断能不能直接刷新）
       logLines: []
     }
   },
@@ -269,18 +271,15 @@ export default {
       this.addLog($tr('读取预设失败: {0}', { 0: e.message }), '#ff6b6b')
     }
 
-    const store = useMoleculeStore()
-    if (store.molblock) {
-      this.molblock = store.molblock
-      this.molName = store.name || ''
-      this.nAtoms = (store.atoms || []).length
-      this.fromStore = true
-      this.charge = store.charge || 0
-      this.mult = store.mult || 1
-      this.addLog($tr('已从「分子结构」页载入分子: {0}', { 0: this.molName }), '#87d2ff')
-      await this.generate()
-    }
+    this._ready = true
+    await this.loadFromStore()
     await this.refreshList()
+  },
+  /** 本页被 keep-alive 缓存，再次进入不会走 mounted：这里补一次，保证能收到「分子结构」页送来的新分子 */
+  activated() {
+    if (!this._ready) return
+    this.loadFromStore()
+    this.refreshList()
   },
   methods: {
     addLog(text, color = '#d4d4d4') {
@@ -303,6 +302,23 @@ export default {
       return { ok: resp.ok, status: resp.status, data }
     },
 
+    /** 载入「分子结构」页送来的分子（未保存的也算）：版本没变就不重复载入 */
+    async loadFromStore() {
+      const store = useMoleculeStore()
+      if (!store.molblock || store.rev === this._storeRev) return false
+      this._storeRev = store.rev
+      this.molblock = store.molblock
+      this.molName = store.name || ''
+      this.nAtoms = (store.atoms || []).length
+      this.fromStore = true
+      this.activeName = store.source || ''
+      this.charge = store.charge || 0
+      this.mult = store.mult || 1
+      this.title = ''
+      this.addLog($tr('已从「分子结构」页载入分子: {0}', { 0: this.molName }), '#87d2ff')
+      await this.generate()
+      return true
+    },
     async refreshList() {
       if (!this.folder) return
       const { ok, data } = await this.postJson(`${this.backendUrl}/api/mol/list`, { folder: this.folder })

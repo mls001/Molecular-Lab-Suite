@@ -1,10 +1,17 @@
 const { app, BrowserWindow, ipcMain, dialog, Menu, shell } = require('electron');
 const path = require('path');
 const { spawn, exec } = require('child_process');
+const http = require('http');
 const fs = require('fs');
-const keytar = require('keytar');  // 新增
 const { createCipheriv, createDecipheriv, randomBytes, scryptSync } = require('crypto');
 const Store = require('electron-store');
+
+// keytar 是原生模块，加载要几百毫秒。启动时先不加载它（用到了再 require），
+// 这样 app.whenReady() 与启动画面能更早出现。
+function getKeytar() {
+  if (!getKeytar._mod) getKeytar._mod = require('keytar');
+  return getKeytar._mod;
+}
 
 // ===== 安全日志（必须最早安装）=====
 // 打包后的 Electron 应用通常没有控制台：stdout/stderr 可能是已经关闭的管道，
@@ -142,12 +149,12 @@ const KEYTAR_ACCOUNT = 'server_password';
 ipcMain.handle('keytar-set-password', async (event, password) => {
   try {
     if (password) {
-      await keytar.setPassword(KEYTAR_SERVICE, KEYTAR_ACCOUNT, password);
+      await getKeytar().setPassword(KEYTAR_SERVICE, KEYTAR_ACCOUNT, password);
       safeLog('[Keytar] 密码已保存到系统密钥链');
       return { success: true };
     } else {
       // 如果密码为空，删除存储的密码
-      await keytar.deletePassword(KEYTAR_SERVICE, KEYTAR_ACCOUNT);
+      await getKeytar().deletePassword(KEYTAR_SERVICE, KEYTAR_ACCOUNT);
       safeLog('[Keytar] 密码已从系统密钥链删除');
       return { success: true };
     }
@@ -160,7 +167,7 @@ ipcMain.handle('keytar-set-password', async (event, password) => {
 // 从系统密钥链读取密码
 ipcMain.handle('keytar-get-password', async () => {
   try {
-    const password = await keytar.getPassword(KEYTAR_SERVICE, KEYTAR_ACCOUNT);
+    const password = await getKeytar().getPassword(KEYTAR_SERVICE, KEYTAR_ACCOUNT);
     safeLog('[Keytar] 从系统密钥链读取密码:', password ? '已找到' : '未找到');
     return { success: true, password: password || '' };
   } catch (error) {
@@ -172,7 +179,7 @@ ipcMain.handle('keytar-get-password', async () => {
 // 从系统密钥链删除密码
 ipcMain.handle('keytar-delete-password', async () => {
   try {
-    await keytar.deletePassword(KEYTAR_SERVICE, KEYTAR_ACCOUNT);
+    await getKeytar().deletePassword(KEYTAR_SERVICE, KEYTAR_ACCOUNT);
     safeLog('[Keytar] 密码已从系统密钥链删除');
     return { success: true };
   } catch (error) {
@@ -286,6 +293,10 @@ function getBackendPath() {
   const resourcesPath = process.resourcesPath;
   const exeDir = path.dirname(app.getPath('exe'));
   const exeCandidates = [
+    // onedir（推荐：不用每次解压，冷启动更快）
+    path.join(resourcesPath, 'backend', 'dist', 'mls-backend', 'mls-backend.exe'),
+    path.join(exeDir, 'backend', 'dist', 'mls-backend', 'mls-backend.exe'),
+    // onefile（旧打包方式，兼容保留）
     path.join(resourcesPath, 'backend', 'dist', 'mls-backend.exe'),
     path.join(resourcesPath, 'backend', 'mls-backend.exe'),
     path.join(resourcesPath, 'mls-backend.exe'),
@@ -320,16 +331,81 @@ function killBackendProcesses() {
   });
 }
 
-// ===== 清除缓存 =====
-function clearCache() {
-  try {
-    if (fs.existsSync(cacheDir)) {
-      fs.rmSync(cacheDir, { recursive: true, force: true });
-      safeLog('✅ 缓存目录已清除:', cacheDir);
+// ===== 缓存清理 =====
+// 退出（以及启动时兜底）清掉纯缓存，只保留设置：Local Storage（外部程序目录等）、
+// Preferences、mls-preferences.json、presets.json、.mls_key（密码加密密钥）都不动。
+function cacheTargets() {
+  const userData = app.getPath('userData');
+  const targets = [
+    // Chromium 的缓存（体积最大，删掉下次启动会自动重建）
+    path.join(userData, 'Cache'),
+    path.join(userData, 'GPUCache'),
+    path.join(userData, 'DawnCache'),
+    path.join(userData, 'Code Cache'),
+    path.join(userData, 'blob_storage'),
+    path.join(userData, 'Shared Dictionary'),
+    path.join(userData, 'Session Storage'),
+    // 后端远程解析缓存（MLS_USER_DATA 下的 cache，见 backend/app/routers/remote.py）
+    path.join(userData, 'cache'),
+    // 图片缩略图缓存（%LOCALAPPDATA%\mls-desktop\thumbs，见 backend/app/routers/ext.py）
+    path.join(process.env.LOCALAPPDATA || userData, 'mls-desktop', 'thumbs'),
+    // 旧版本留下的东西：安装目录下的 cache、后端目录内的 cache、用户数据里的 backend 源码副本
+    cacheDir,
+    path.join(process.resourcesPath || '', 'backend', 'dist', 'mls-backend', 'cache'),
+    path.join(userData, 'backend'),
+  ];
+  return targets.filter((p) => p && p.length > 3);
+}
+
+function dirStats(p) {
+  let files = 0;
+  let bytes = 0;
+  const walk = (d) => {
+    let list = [];
+    try { list = fs.readdirSync(d, { withFileTypes: true }); } catch (e) { return; }
+    for (const e of list) {
+      const full = path.join(d, e.name);
+      if (e.isDirectory()) walk(full);
+      else {
+        files += 1;
+        try { bytes += fs.statSync(full).size; } catch (e2) { /* ignore */ }
+      }
     }
-  } catch (err) {
-    safeLog('清除缓存失败:', err.message);
+  };
+  walk(p);
+  return { files, bytes };
+}
+
+function cleanCaches(reason) {
+  let files = 0;
+  let bytes = 0;
+  for (const p of cacheTargets()) {
+    try {
+      if (!fs.existsSync(p)) continue;
+      const st = dirStats(p);
+      fs.rmSync(p, { recursive: true, force: true });
+      files += st.files;
+      bytes += st.bytes;
+    } catch (err) {
+      // 正在被占用（例如 Chromium 还没退干净）时忽略，下次启动会再清一次
+      safeLog(`[cache] 跳过 ${p}: ${err.message}`);
+    }
   }
+  if (files || bytes) {
+    safeLog(`🧹 已清理缓存（${reason}）: ${files} 个文件 / ${(bytes / 1024 / 1024).toFixed(1)} MB`);
+  }
+  return { files, bytes };
+}
+
+// 日志也会长大：超过 1 MB 就在启动时重新开始记
+function trimLogIfBig(maxBytes = 1024 * 1024) {
+  try {
+    const f = path.join(app.getPath('userData'), 'mls-main.log');
+    if (fs.existsSync(f) && fs.statSync(f).size > maxBytes) {
+      fs.rmSync(f, { force: true });
+      safeLog('[log] 日志超过 1 MB，已重新开始记录');
+    }
+  } catch (e) { /* ignore */ }
 }
 
 // ===== 启动后端进程 =====
@@ -376,6 +452,8 @@ function startBackend() {
     MLS_USER_DATA: app.getPath('userData'),
     // .mls 分子文件保存在 .exe 同级的 Mols 目录
     MLS_MOLS_DIR: getMolsDir(),
+    // 软件根目录：绘图配置 mls-plots.json 就放在这里，用户可直接编辑
+    MLS_APP_DIR: getAppDir(),
   };
 
   backendProcess = spawn(exe, args, {
@@ -464,6 +542,17 @@ function getMolsDir() {
 }
 
 // ===== 外链处理 =====// 界面里的 http(s) 链接一律交给系统浏览器打开，避免把应用窗口本身导航走。
+// ===== 软件根目录 =====
+// 绘图配置（mls-plots.json）放在这里，用户可直接编辑；后端通过 MLS_APP_DIR 找到它。
+function getAppDir() {
+  try {
+    return app.isPackaged ? path.dirname(app.getPath('exe')) : path.join(__dirname, '..');
+  } catch (e) {
+    safeLog('[appdir] 取软件根目录失败:', e && e.message);
+    return '';
+  }
+}
+
 function attachExternalLinks(win) {
   if (!win || !win.webContents) return;
   const openExternal = (url) => {
@@ -502,17 +591,18 @@ function createSplash() {
       fullscreenable: false,
       alwaysOnTop: true,
       skipTaskbar: true,
-      show: false,
+      show: true,                  // 立刻显示（先用深色底占位），HTML 画好后再补内容，尽量早亮
       center: true,
       backgroundColor: '#14161a',
       webPreferences: { contextIsolation: true, nodeIntegration: false, sandbox: true }
     });
+    splashShownAt = Date.now();
     splashWindow.loadFile(path.join(__dirname, 'splash.html'));
     attachExternalLinks(splashWindow);
+    safeLog(`[splash] 启动画面已显示（进程启动后 ${Math.round(process.uptime() * 1000)} ms）`);
     splashWindow.once('ready-to-show', () => {
       if (!splashWindow || splashWindow.isDestroyed()) return;
       splashWindow.show();
-      splashShownAt = Date.now();
       setSquareCorners(splashWindow);
     });
     splashWindow.on('closed', () => { splashWindow = null; });
@@ -538,13 +628,108 @@ function closeSplash() {
   }, wait);
 }
 
+// ===== 启动时序：splash 立刻亮 → 后端就绪后再显示主窗口 =====
+// 后端是 68MB 的 onefile 可执行文件，冷启动要 5~10 秒。如果主窗口早早显示，
+// 用户会先看到一个空列表（首屏请求还会失败）。所以这里等 /api/health 通过再切到主界面。
+let rendererReady = false;
+let backendReady = false;
+const APP_START_AT = Date.now();
+const MAIN_SHOW_MAX_MS = parseInt(process.env.MLS_MAIN_SHOW_MAX_MS || '30000', 10);
+
+function tryShowMain() {
+  if (!mainWindow || mainWindow.isDestroyed() || !rendererReady) return;
+  if (!backendReady) return;          // 后端没好就一直留在启动画面（读秒），不显示空界面
+  if (!mainWindow.isVisible()) {
+    mainWindow.show();
+    setSquareCorners(mainWindow);
+    safeLog(`[startup] 主界面已显示（进程启动后 ${Math.round(process.uptime() * 1000)} ms）`);
+  }
+  closeSplash();
+}
+
+/** 把启动画面的状态文字换成自定义内容（超时提示用） */
+function setSplashStatus(text, color) {
+  if (!splashWindow || splashWindow.isDestroyed()) return;
+  try {
+    const js = `(function(){var el=document.getElementById('status');if(el){el.textContent=${JSON.stringify(text)};`
+      + `el.style.color=${JSON.stringify(color || '#e0a0a0')};}})()`;
+    splashWindow.webContents.executeJavaScript(js).catch(() => {});
+  } catch (e) { /* ignore */ }
+}
+
+function probeHealth() {
+  return new Promise((resolve) => {
+    try {
+      const req = http.get(`http://127.0.0.1:${BACKEND_PORT}/api/health`, (res) => {
+        res.resume();
+        resolve(res.statusCode === 200);
+      });
+      req.on('error', () => resolve(false));
+      req.setTimeout(1500, () => { req.destroy(); resolve(false); });
+    } catch (e) {
+      resolve(false);
+    }
+  });
+}
+
+async function waitBackendReady(maxMs) {
+  const t0 = Date.now();
+  while (Date.now() - t0 < maxMs) {
+    // eslint-disable-next-line no-await-in-loop
+    if (await probeHealth()) {
+      backendReady = true;
+      safeLog(`[startup] 后端就绪（进程启动后 ${Math.round(process.uptime() * 1000)} ms）`);
+      tryShowMain();
+      return true;
+    }
+    const left = Math.max(0, Math.round((maxMs - (Date.now() - t0)) / 1000));
+    setSplashStatus(`Starting backend service… (timeout in ${left}s)`, '#98a0a8');
+    // eslint-disable-next-line no-await-in-loop
+    await new Promise((r) => setTimeout(r, 300));
+  }
+  return false;
+}
+
+/** 等待超时：留在启动画面并提示用户重启（可选重试） */
+async function waitBackendOrPrompt() {
+  // eslint-disable-next-line no-constant-condition
+  while (true) {
+    // eslint-disable-next-line no-await-in-loop
+    const ok = await waitBackendReady(MAIN_SHOW_MAX_MS);
+    if (ok) return;
+    const waited = Math.round(MAIN_SHOW_MAX_MS / 1000);
+    setSplashStatus(`Backend startup timed out (waited ${waited}s). Please restart the software.`, '#ff9a9a');
+    safeLog(`[startup] 等待后端超时（${waited}s）`);
+    // eslint-disable-next-line no-await-in-loop
+    const choice = await dialog.showMessageBox({
+      type: 'error',
+      title: '启动超时',
+      message: `后端服务启动超时（已等待 ${waited} 秒）`,
+      detail: '请关闭本软件后重新启动。\n\n若反复超时，请检查：\n'
+        + '1) 杀毒软件是否拦截了 mls-backend.exe；\n'
+        + `2) 端口 ${BACKEND_PORT} 是否被其它程序占用；\n`
+        + '3) 安装目录是否有写入权限（Mols / 缓存目录）。',
+      buttons: ['重试', '退出软件'],
+      defaultId: 0,
+      cancelId: 1,
+      noLink: true,
+    });
+    if (choice.response === 1) {
+      safeLog('[startup] 用户选择退出');
+      quitApp();
+      return;
+    }
+    setSplashStatus('Retrying backend startup…', '#98a0a8');
+  }
+}
+
 function createWindow() {
   // 隐藏默认 File/Edit 菜单（用户要求上方菜单行隐藏）
   Menu.setApplicationMenu(null)
   mainWindow = new BrowserWindow({
     width: 1600,
     height: 900,
-    show: false,                 // 等 ready-to-show，避免白屏
+    show: false,                 // 等渲染好 + 后端就绪再显示，避免白屏/空列表
     backgroundColor: '#14161a',  // 与启动画面同色，首帧前不闪白
     autoHideMenuBar: true,
     webPreferences: {
@@ -558,19 +743,17 @@ function createWindow() {
   });
 
   mainWindow.once('ready-to-show', () => {
-    if (!mainWindow || mainWindow.isDestroyed()) return;
-    mainWindow.show();
-    setSquareCorners(mainWindow);
-    closeSplash();
+    rendererReady = true;
+    tryShowMain();
   });
 
-  // 兜底：万一 ready-to-show 迟迟不来（例如加载失败），也要把界面显示出来并收掉 splash
+  // 兜底：渲染进程迟迟不 ready（例如页面加载失败）时，后端就绪了也要能把界面显示出来
   setTimeout(() => {
-    if (mainWindow && !mainWindow.isDestroyed() && !mainWindow.isVisible()) {
-      mainWindow.show();
-      setSquareCorners(mainWindow);
+    if (!rendererReady) {
+      safeLog('[startup] 渲染进程长时间未就绪，强制放行显示');
+      rendererReady = true;
     }
-    closeSplash();
+    tryShowMain();
   }, 20000);
 
   // 主窗口里的 http(s) 链接同样交给系统浏览器
@@ -671,16 +854,19 @@ async function quitApp() {
   }
 
   await killBackendProcesses();
-  clearCache();
+  cleanCaches('退出');
   safeLog('清理完成，退出应用');
   app.exit(0);
 }
 
 // ===== 应用生命周期 =====
 app.whenReady().then(() => {
-  createSplash();          // 先亮启动画面，遮住后端拉起与首帧渲染的空窗期
+  createSplash();          // 先亮启动画面（尽可能早，遮住后端拉起与首帧渲染的空窗期）
+  trimLogIfBig();          // 日志太大就先重开（避免日志无限长大）
+  cleanCaches('启动兜底');  // 上次异常退出/被杀进程时可能留下缓存，这里再清一遍
   startBackend();
-  setTimeout(createWindow, 2000);
+  createWindow();          // 窗口先建好（隐藏），渲染进程一起跑，等后端就绪再显示
+  waitBackendOrPrompt();   // 超时则留在启动画面提示用户重启
 });
 
 app.on('window-all-closed', () => {
@@ -704,9 +890,5 @@ process.on('exit', () => {
       { stdio: 'ignore' }
     );
   } catch (e) { /* ignore */ }
-  try {
-    if (fs.existsSync(cacheDir)) {
-      fs.rmSync(cacheDir, { recursive: true, force: true });
-    }
-  } catch (e) { /* ignore */ }
+  cleanCaches('进程退出');
 });

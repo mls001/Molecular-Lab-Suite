@@ -5,7 +5,7 @@
       <div class="mls-topbar-row">
         <div class="mls-brand">
           <span class="mls-brand-mark">MLS</span>
-          <span class="mls-brand-name">Molecular Lab Suite&nbsp;V26.9</span>
+          <span class="mls-brand-name">Molecular Lab Suite&nbsp;V26.9-Preview-1</span>
         </div>
         <nav class="mls-nav">
           <router-link to="/molecule">{{ $t('分子结构') }}</router-link>

@@ -1,6 +1,6 @@
 {
   "name": "mls-desktop",
-  "version": "26.9.1",
+  "version": "26.9.0-preview.1",
   "description": "Molecular Lab Suite - M.L.S.",
   "author": "mls.",
   "main": "electron/main.js",
@@ -53,6 +53,12 @@
       {
         "from": "config.json",
         "to": "config.json"
+      }
+    ],
+    "extraFiles": [
+      {
+        "from": "MANUAL.md",
+        "to": "MANUAL.md"
       }
     ],
     "win": {

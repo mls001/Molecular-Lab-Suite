@@ -16,8 +16,18 @@ from app.routers import mol
 from app.routers import tools
 from app.routers import ext
 from app.routers import analysis
+from app.core import plot_config
 
-app = FastAPI(title="Molecular Lab Suite, MLS V26.9", version="26.9")
+app = FastAPI(title="Molecular Lab Suite, MLS V26.9-Preview-1", version="26.9-preview.1")
+
+
+@app.on_event("startup")
+def _materialize_plot_config():
+    """启动时就把绘图配置 mls-plots.json 写到软件根目录，用户一装好就能看到、直接改"""
+    try:
+        plot_config.load_config()
+    except Exception:                    # noqa: BLE001  配置出问题也不能挡住后端启动
+        pass
 
 app.add_middleware(
     CORSMiddleware,

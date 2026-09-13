@@ -6,87 +6,34 @@
 - 所有外部程序输出都回传给界面（日志区），出错时看得到原因。
 """
 import glob
+import hashlib
 import os
 import re
 import shutil
 import subprocess
+import tempfile
 from typing import List, Optional
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
+from app.core import plot_config
 from app.core.multiwfn_citation import citation_payload
 from app.routers.tools import CANDIDATES, find_in_path
 
 router = APIRouter()
 
-# Multiwfn 批量导出轨道 cube 的默认输入脚本（Multiwfn 2026.4.10 实测流程）：
-#   200                        主功能 → Other functions (Part 2)
-#   3                          子功能 → Generate cube file for multiple orbital wavefunctions
-#   {orb}                      轨道序号，支持 1,3-6,8 这种写法（多个轨道一次生成）
-#   {grid}                     网格质量 1 低 / 2 中 / 3 高
-#   1                          每个轨道输出到单独的 cube 文件（2 = 合并成一个）
-# 末尾由后端补 MWFN_TAIL（子菜单 0 返回主菜单、q 正常退出），否则程序停在提示上等输入，
-# stdin 耗尽就会 forrtl: severe (24) 崩溃。
-DEFAULT_MWFN_TEMPLATE = ['200', '3', '{orb}', '{grid}', '1']
-MWFN_TAIL = ['0', 'q']
-# VMD 脚本默认内容：只用 VMD 内置命令（不依赖 vcube.tcl），流程对标 Multiwfn 作者写的
-# showorb.vmd：CPK + ±isovalue 两个 Isosurface，白底、关深度提示，最后交给 Tachyon 渲染。
-# 占位符：{cub} {scene} {w} {h} {iso}（{png} {bmp} 也支持，模板里一般用不到）
-DEFAULT_VMD_TEMPLATE = [
-    'mol delete all',
-    'mol new {cub} type cube',
-    'mol modstyle 0 top CPK 0.800000 0.300000 22.000000 22.000000',
-    'mol addrep top',
-    'mol modstyle 1 top Isosurface {iso} 0 0 0 1 1',
-    'mol modcolor 1 top ColorID 1',
-    'mol modmaterial 1 top Glossy',
-    'mol addrep top',
-    'mol modstyle 2 top Isosurface -{iso} 0 0 0 1 1',
-    'mol modcolor 2 top ColorID 0',
-    'mol modmaterial 2 top Glossy',
-    'color Display Background white',
-    'display depthcue off',
-    'axes location Off',
-    'display resize {w} {h}',
-    'render Tachyon {scene}',
-]
-# Tachyon 渲染参数（对标 example/额外软件所需脚本/VMDrender_noshadow.bat）
-DEFAULT_TACHYON = ['{scene}', '-format', 'BMP', '-o', '{bmp}', '-trans_raster3d',
-                   '-res', '{w}', '{h}', '-numthreads', '4', '-aasamples', '24', '-mediumshade']
+# 产物目录后缀：轨道图 → <分子名>-Orbitals/，图片统一再进 PIC/
+SUFFIX_ORBITALS = '-Orbitals'
 
-# ===== 艺术级渲染（sobereva.com/449）=====
-# 参数取自 Multiwfn 作者在 examples\scripts\VMDrender.txt 里精心调好的设定：
-# 碳改 tan 色、Opaque 加勾边与反光、Glossy 微透明、正/负等值面用 ColorID 12/22、
-# 拉远视角避免边缘畸变、开 3 号光源。Tachyon 用 -fullshade（带阴影）或 -mediumshade（无阴影）。
-VMD_ART_STYLE = [
-    'color Name C tan',
-    'color change rgb tan 0.700000 0.560000 0.360000',
-    'material change mirror Opaque 0.15',
-    'material change outline Opaque 4.000000',
-    'material change outlinewidth Opaque 0.5',
-    'material change ambient Glossy 0.1',
-    'material change diffuse Glossy 0.600000',
-    'material change opacity Glossy 0.75',
-    'material change ambient Opaque 0.08',
-    'material change mirror Opaque 0.0',
-    'material change shininess Glossy 1.0',
-    'mol modcolor 1 top ColorID 12',
-    'mol modcolor 2 top ColorID 22',
-    'display distance -7.0',
-    'display height 10',
-    'light 3 on',
-]
-TACHYON_ART_SHADOW = ['{scene}', '-format', 'BMP', '-o', '{bmp}', '-trans_raster3d',
-                      '-res', '{w}', '{h}', '-fullshade', '-numthreads', '4', '-aasamples', '24']
-TACHYON_ART_NOSHADOW = ['{scene}', '-format', 'BMP', '-o', '{bmp}', '-trans_raster3d',
-                        '-res', '{w}', '{h}', '-mediumshade', '-numthreads', '4', '-aasamples', '24']
-# 渲染风格 → (VMD 附加设定, tachyon 参数, 默认分辨率)
-VMD_STYLES = {
-    'standard': ([], DEFAULT_TACHYON, [1600, 1200]),
-    'art': (VMD_ART_STYLE, TACHYON_ART_SHADOW, [2000, 1500]),
-    'art_noshadow': (VMD_ART_STYLE, TACHYON_ART_NOSHADOW, [2000, 1500]),
-}
+# 绘图风格（VMD 脚本 / Tachyon 参数 / 分辨率 / Multiwfn 脚本）都在软件根目录的
+# mls-plots.json 里，本模块只负责读取：
+#   plot_config.vmd_template()      默认 VMD 脚本
+#   plot_config.vmd_styles()        各风格 → (VMD 附加设定, tachyon 参数, 分辨率)
+#   plot_config.multiwfn_template() 默认 Multiwfn 输入脚本
+# 末尾由后端补 MWFN_TAIL（子菜单 0 返回主菜单、q 正常退出），否则 Multiwfn 停在提示上等
+# 输入，stdin 耗尽就会 forrtl: severe (24) 崩溃。
+MWFN_TAIL = ['0', 'q']
 
 
 def find_program(folder: str, kind: str) -> str:
@@ -378,7 +325,7 @@ def safe_name(name: str, fallback: str = 'molecule') -> str:
 
 
 def product_dir(work_dir: str, folder_name: str, make: bool = True) -> str:
-    """产物统一放到「当前工作目录 / 该分子文件名的文件夹」里"""
+    """产物统一放到「当前工作目录 / 该次分析命名的文件夹」里"""
     d = os.path.join(work_dir or '.', safe_name(folder_name))
     if make:
         try:
@@ -386,6 +333,23 @@ def product_dir(work_dir: str, folder_name: str, make: bool = True) -> str:
         except OSError:
             return work_dir or '.'
     return d
+
+
+def pic_dir(main_dir: str, make: bool = True) -> str:
+    """图片单独放 <产物目录>/PIC —— 和 cube/脚本分开，目录不至于太乱"""
+    d = os.path.join(main_dir, 'PIC')
+    if make:
+        try:
+            os.makedirs(d, exist_ok=True)
+        except OSError:
+            return main_dir
+    return d
+
+
+def product_dirs(work_dir: str, folder_name: str):
+    """返回 (主目录, 图片目录)"""
+    main = product_dir(work_dir, folder_name)
+    return main, pic_dir(main)
 
 
 def move_product(path: str, dst_dir: str, new_name: str = '') -> str:
@@ -537,7 +501,7 @@ class CubRequest(BaseModel):
 
 
 @router.post("/cub")
-async def make_cub(req: CubRequest):
+def make_cub(req: CubRequest):
     """调用 Multiwfn 为指定轨道生成 .cub（每个轨道一次调用，便于精确定位产物）"""
     if not req.source or not os.path.isfile(req.source):
         raise HTTPException(status_code=404, detail=f'文件不存在: {req.source}')
@@ -556,7 +520,7 @@ async def make_cub(req: CubRequest):
     src, notes, info = resolve_wavefn(req.source, req.wavefn, req.force, [out_dir])
     notes.append(f'[提示] 波函数来源：{src}')
 
-    tpl = req.template or DEFAULT_MWFN_TEMPLATE
+    tpl = req.template or plot_config.multiwfn_template()      # 默认脚本可在 mls-plots.json 里改
     orbs = sorted({int(o) for o in req.orbitals if int(o) > 0})[:64]
 
     def script_of(orb_text: str) -> List[str]:
@@ -595,12 +559,12 @@ async def make_cub(req: CubRequest):
         else:
             logs.append(f'--- Multiwfn 轨道 {orb} 失败（返回码 {code2}）---\n{_tail(out2, 20)}')
     items.sort(key=lambda i: i['orbital'])
-    # 产物归档：<工作目录>/<分子文件名>/分子名-orb<序号>.cub
-    folder = safe_name(req.folder_name or os.path.splitext(os.path.basename(req.source))[0])
-    pdir = product_dir(out_dir, folder)
+    # 产物归档：<工作目录>/<分子名>-Orbitals/分子名-orb<序号>.cub（图片另外进 PIC/）
+    base = safe_name(req.folder_name or os.path.splitext(os.path.basename(req.source))[0])
+    pdir = product_dir(out_dir, base + SUFFIX_ORBITALS)
     for it in items:
         if it['cub']:
-            newp = move_product(it['cub'], pdir, f'{folder}-orb{it["orbital"]}.cub')
+            newp = move_product(it['cub'], pdir, f'{base}-orb{it["orbital"]}.cub')
             it['cub'] = newp
             it['name'] = os.path.basename(newp)
             it['size'] = os.path.getsize(newp) if os.path.isfile(newp) else 0
@@ -635,7 +599,7 @@ class FormchkRequest(BaseModel):
 
 
 @router.post("/formchk")
-async def run_formchk(req: FormchkRequest):
+def run_formchk(req: FormchkRequest):
     """用 Gaussian 的 formchk 把 .chk 转成 Multiwfn 能读的 .fchk"""
     if not req.chk or not os.path.isfile(req.chk):
         raise HTTPException(status_code=404, detail=f'文件不存在: {req.chk}')
@@ -660,7 +624,8 @@ class RenderRequest(BaseModel):
     folder_name: str = ''                         # 归档子目录名（默认取 cube 所在目录名）
     size: List[int] = []                          # 空 = 用所选风格的默认分辨率
     iso: float = 0.05                             # 等值面数值（正负各画一张）
-    style: str = 'standard'                       # standard | art | art_noshadow（sobereva.com/449）
+    style: str = 'art_noshadow'                   # art_noshadow（默认，无阴影）| art（带阴影）| standard
+    trans_mode: str = ''                          # 覆盖 tachyon 的透明选项：vmd / raster3d / trans_vmd
     script: Optional[List[str]] = None            # 覆盖默认 VMD 脚本，支持 {cub} {scene} {w} {h} {iso}
     use_tachyon: bool = True
     tachyon: Optional[List[str]] = None           # 覆盖默认 tachyon 参数
@@ -699,8 +664,8 @@ def _render_one(exe: str, script_path: str, out_dir: str, timeout: int):
 
 
 @router.post("/render")
-async def render_orbitals(req: RenderRequest):
-    """调用 VMD（必要时再用 tachyon）把 cube 渲染成图片，输出到目标目录"""
+def render_orbitals(req: RenderRequest):
+    """调用 VMD（必要时再用 tachyon）把 cube 渲染成图片；图片统一进 cube 所在产物目录的 PIC/"""
     items = [it for it in req.items if it.get('cub') and os.path.isfile(it['cub'])]
     if not items:
         raise HTTPException(status_code=400, detail='没有可渲染的 .cub 文件，请先生成 cub')
@@ -718,30 +683,34 @@ async def render_orbitals(req: RenderRequest):
                 break
         if not tachyon_exe:
             tachyon_exe = find_in_path('tachyon')      # VMD 的 tachyon 常常也在 PATH 里
-    w, h = (req.size or list(VMD_STYLES.get(req.style, VMD_STYLES['standard'])[2]) + [1600, 1200])[:2]
+    styles = plot_config.vmd_styles()               # 风格来自 mls-plots.json（可改）
+    base_tpl = plot_config.vmd_template()
+    # 没指定 / 指定了不存在的风格 → 用配置里的默认风格（默认 art_noshadow，无阴影）
+    sel = (styles.get(req.style) or styles.get(plot_config.default_style())
+           or styles.get('standard') or ([], plot_config.DEFAULT_TACHYON, [1600, 1200]))
+    w, h = (req.size or list(sel[2]) + [1600, 1200])[:2]
     iso = req.iso
-    style_lines, style_tachyon, _size = VMD_STYLES.get(req.style, VMD_STYLES['standard'])
+    style_lines, style_tachyon, _size = sel
     if req.script:
         tpl = req.script
     elif style_lines:
         # 艺术级设定要放在建好表示（rep）之后、渲染之前
-        tpl = list(DEFAULT_VMD_TEMPLATE)
+        tpl = list(base_tpl)
         cut = len(tpl) - 1 if str(tpl[-1]).strip().startswith('render ') else len(tpl)
         tpl = tpl[:cut] + list(style_lines) + tpl[cut:]
     else:
-        tpl = DEFAULT_VMD_TEMPLATE
-    tpl_t = req.tachyon or style_tachyon
+        tpl = base_tpl
+    tpl_t = req.tachyon or plot_config.apply_trans_mode(style_tachyon, req.trans_mode)
     logs = []
 
-    # 每个轨道：cube → 场景文件 → PNG（统一放进 <工作目录>/<分子文件名>/）
-    # 子目录名：优先用界面给的分子名；否则用 cube 已归档到的那个目录名；再否则用工作目录名
+    # 图片统一放进「cube 所在产物目录」的 PIC/ 子目录（cube 与图分开，目录不乱）
     folder = req.folder_name
     if not folder:
         cub_dir = os.path.dirname(os.path.abspath(items[0]['cub']))
         work = os.path.abspath(out_dir)
         folder = os.path.basename(cub_dir) if cub_dir != work else os.path.basename(work)
-    folder = safe_name(folder)
-    pdir = product_dir(out_dir, folder)
+    main_dir = product_dir(out_dir, folder)
+    pdir = pic_dir(main_dir)
     jobs = []
     for it in items[:64]:
         orb = int(it.get('orbital', 0))
@@ -802,6 +771,7 @@ async def render_orbitals(req: RenderRequest):
                                     .replace('{bmp}', os.path.basename(j['bmp']))
                                     .replace('{w}', str(w)).replace('{h}', str(h))
                                     for a in tpl_t]
+            logs.append(f'--- tachyon 参数：{" ".join(str(a) for a in args[1:])} ---')
             code2, out2 = _run(args, pdir, timeout=req.timeout)
             logs.append(f'--- tachyon {j["stem"]}（返回码 {code2}）---\n{_tail(out2, 6)}')
             if os.path.isfile(j['bmp']) and _bmp_or_tga_to_png(j['bmp'], j['png']):
@@ -841,22 +811,75 @@ async def read_cub(req: ReadCubRequest):
 class ReadImageRequest(BaseModel):
     path: str
     max_bytes: int = 40 * 1024 * 1024
+    max_w: int = 0                    # >0 时按最大宽度缩放（界面缩略图用，恢复缓存快很多）
+
+
+def _thumb_cache_dir() -> str:
+    """缩略图缓存目录：优先用户缓存目录，不可写就退到临时目录；都不可写返回空串"""
+    env = os.environ.get('MLS_THUMB_DIR')
+    cands = [env] if env else []
+    base = os.environ.get('LOCALAPPDATA') or os.environ.get('XDG_CACHE_HOME')
+    if base:
+        cands.append(os.path.join(base, 'mls-desktop', 'thumbs'))
+    cands.append(os.path.join(tempfile.gettempdir(), 'mls-desktop-thumbs'))
+    for d in cands:
+        if not d:
+            continue
+        try:
+            os.makedirs(d, exist_ok=True)
+            return d
+        except OSError:
+            continue
+    return ''
+
+
+def make_thumb(path: str, max_w: int) -> str:
+    """生成/复用缩略图（按 路径+修改时间+宽度 缓存）；失败就返回原图路径"""
+    if max_w <= 0:
+        return path
+    cache_dir = _thumb_cache_dir()
+    if not cache_dir:
+        return path
+    try:
+        from PIL import Image
+    except Exception:                              # noqa: BLE001
+        return path
+    try:
+        key = hashlib.sha1(f'{os.path.abspath(path)}|{os.path.getmtime(path)}|{max_w}'
+                           .encode('utf-8')).hexdigest()
+        out = os.path.join(cache_dir, key + '.png')
+        if os.path.isfile(out) and os.path.getmtime(out) >= os.path.getmtime(path):
+            return out
+        with Image.open(path) as im:
+            if im.width <= max_w:
+                return path
+            h = max(1, int(round(im.height * max_w / float(im.width))))
+            im.convert('RGB').resize((max_w, h), Image.LANCZOS).save(out, 'PNG', optimize=True)
+        return out
+    except Exception:                              # noqa: BLE001
+        return path
 
 
 @router.post("/read-image")
-async def read_image(req: ReadImageRequest):
-    """把渲染出的图片读成 base64（避免前端受 file:// 同源策略限制）"""
+def read_image(req: ReadImageRequest):
+    """把渲染出的图片读成 base64（避免前端受 file:// 同源策略限制）
+
+    max_w > 0 时先缩成缩略图再返回：界面上的图都很小，缩略图体积只有原图的几十分之一，
+    切回之前解析过的文件时不用再解码整张大图，恢复瞬间就出来了（点开大图时才读原图）。
+    """
     import base64
     import mimetypes
     if not req.path or not os.path.isfile(req.path):
         raise HTTPException(status_code=404, detail=f'文件不存在: {req.path}')
-    size = os.path.getsize(req.path)
+    src = make_thumb(req.path, req.max_w)
+    size = os.path.getsize(src)
     if size > req.max_bytes:
         raise HTTPException(status_code=400, detail=f'图片过大（{size // 1024} KB）')
-    mime = mimetypes.guess_type(req.path)[0] or 'image/png'
-    with open(req.path, 'rb') as f:
+    mime = mimetypes.guess_type(src)[0] or 'image/png'
+    with open(src, 'rb') as f:
         blob = base64.b64encode(f.read()).decode('ascii')
-    return {'path': req.path, 'size': size, 'mime': mime, 'base64': blob}
+    return {'path': req.path, 'size': size, 'mime': mime, 'base64': blob,
+            'thumb': src != req.path}
 
 
 @router.get("/program")
@@ -867,11 +890,19 @@ async def which_program(kind: str = 'multiwfn', dir: str = ''):
 
 
 @router.get("/defaults")
-async def defaults():
-    """默认脚本模板（前端可编辑）"""
-    return {'multiwfn': DEFAULT_MWFN_TEMPLATE, 'vmd': DEFAULT_VMD_TEMPLATE, 'tachyon': DEFAULT_TACHYON,
-            'vmd_art': VMD_ART_STYLE, 'tachyon_art': TACHYON_ART_SHADOW,
-            'tachyon_art_noshadow': TACHYON_ART_NOSHADOW, 'tail': MWFN_TAIL}
+def defaults():
+    """默认脚本模板（前端可编辑）+ 配置文件位置（用户可直接改 json）"""
+    cfg = plot_config.load_config()
+    return {'multiwfn': plot_config.multiwfn_template(), 'vmd': plot_config.vmd_template(),
+            'tachyon': plot_config.DEFAULT_TACHYON,
+            'vmd_art': (cfg.get('styles', {}).get('art', {}) or {}).get('vmd', plot_config.ART_VMD),
+            'tachyon_art': (cfg.get('styles', {}).get('art', {}) or {}).get('tachyon', plot_config.ART_TACHYON),
+            'tachyon_art_noshadow': (cfg.get('styles', {}).get('art_noshadow', {}) or {}).get('tachyon', plot_config.ART_TACHYON_NOSHADOW),
+            'tail': MWFN_TAIL,
+            'hole_electron': plot_config.hole_electron_defaults(),
+            'style': plot_config.default_style(),
+            'config_path': plot_config.config_path(),
+            'config': cfg}
 
 
 @router.get("/citation")

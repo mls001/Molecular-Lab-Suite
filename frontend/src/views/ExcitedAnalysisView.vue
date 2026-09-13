@@ -20,6 +20,8 @@
             @click="selectFile(idx)"
           >
             {{ f.name }}
+            <!-- 该文件正在分析 / 绘制（可以同时跑多个文件，切走也不影响） -->
+            <span v-if="fileBusy(f, idx)" class="ana-busy">{{ fileBusy(f, idx) }}</span>
           </div>
         </div>
       </aside>
@@ -33,7 +35,10 @@
           </span>
         </div>
         <div class="ide-pane-body" style="overflow:auto;">
-          <EmptyNotice v-if="!results.length && !running" :text="$t('还没有分析结果')"
+          <div v-if="restoring" class="ana-block" style="color:var(--c-accent);font-weight:600;">
+            {{ $t('正在恢复先前解析的内容……') }}
+          </div>
+          <EmptyNotice v-if="!results.length && !running && !restoring" :text="$t('还没有分析结果')"
                        :hint="$t('左侧选择一个含激发态信息的输出文件，勾选激发态后点「开始分析」')" />
 
           <div v-for="it in results" :key="it.state" class="ana-block">
@@ -88,9 +93,9 @@
                 <div class="pair-head">{{ row.leftLabel }}</div>
                 <div class="pair-body">
                   <img v-if="row.left && imageData[row.left.cub]" :src="imageData[row.left.cub]"
-                       class="pair-img" @click="openPreview(row.left)" />
+                       class="pair-img" loading="lazy" decoding="async" @click="openPreview(row.left)" />
                   <CubPreview v-else-if="row.left && cubTexts[row.left.cub]"
-                              :cub-text="cubTexts[row.left.cub]" :isovalue="iso" />
+                              :cub-text="cubTexts[row.left.cub]" :isovalue="activeIso" />
                   <div v-else class="orb-pending">{{ row.leftLabel }}</div>
                 </div>
               </div>
@@ -98,9 +103,9 @@
                 <div class="pair-head">{{ row.rightLabel }}</div>
                 <div class="pair-body">
                   <img v-if="row.right && imageData[row.right.cub]" :src="imageData[row.right.cub]"
-                       class="pair-img" @click="openPreview(row.right)" />
+                       class="pair-img" loading="lazy" decoding="async" @click="openPreview(row.right)" />
                   <CubPreview v-else-if="row.right && cubTexts[row.right.cub]"
-                              :cub-text="cubTexts[row.right.cub]" :isovalue="iso" />
+                              :cub-text="cubTexts[row.right.cub]" :isovalue="activeIso" />
                   <div v-else class="orb-pending">{{ row.rightLabel || '—' }}</div>
                 </div>
               </div>
@@ -109,7 +114,7 @@
             <!-- 叠加图 / 单独图（适应窗口宽度显示） -->
             <div v-for="p in overlayFor(it)" :key="p.name" class="wide-fig">
               <div class="pair-head">{{ p.title }}</div>
-              <img v-if="p.src" :src="p.src" class="wide-img" @click="openImage(p)" />
+              <img v-if="p.src" :src="p.src" class="wide-img" loading="lazy" decoding="async" @click="openImage(p)" />
             </div>
           </div>
         </div>
@@ -137,7 +142,6 @@
             <button class="btn" @click="chooseSource">
               {{ parseMode === 'remote' ? $t('选择远程目录') : $t('选择文件夹') }}
             </button>
-            <div class="rp-hint">{{ $t('支持 Gaussian (.out/.log) 与 ORCA 的激发态输出') }}</div>
           </div>
 
           <!-- 激发态 -->
@@ -197,7 +201,7 @@
             </div>
             <div class="rp-row">
               <span class="label">{{ $t('等值面') }}</span>
-              <input class="control rp-num" type="number" step="0.001" min="0.0001" v-model.number="iso" />
+              <input class="control rp-num" type="number" step="0.0005" min="0.0001" v-model.number="activeIso" />
             </div>
 
             <!-- NTO 专有 -->
@@ -227,17 +231,13 @@
               <label v-for="k in exportOptions" :key="k.id" class="rp-check">
                 <input type="checkbox" :value="k.id" v-model="exports" /> {{ $t(k.label) }}
               </label>
-              <label class="rp-check">
-                <input type="checkbox" v-model="centroids" /> {{ $t('叠加图上标出质心（紫=空穴，橙=电子）') }}
-              </label>
-              <div class="rp-hint">{{ $t('空穴/电子/Chole/Cele 图会半透明渲染并标出各自的电荷中心点') }}</div>
             </template>
 
             <div class="rp-row">
               <span class="label">{{ $t('渲染风格') }}</span>
               <select class="control rp-num" style="font-size:11px;" v-model="style">
-                <option value="art">{{ $t('艺术级（阴影着色）') }}</option>
                 <option value="art_noshadow">{{ $t('艺术级（无阴影）') }}</option>
+                <option value="art">{{ $t('艺术级（阴影着色）') }}</option>
                 <option value="standard">{{ $t('标准') }}</option>
               </select>
             </div>
@@ -251,15 +251,13 @@
             <button v-if="allCubes.length" class="btn" @click="mode === 'nto' ? renderCubes() : renderHeFigures()" :disabled="rendering">
               {{ rendering ? $t('渲染中…') : $t('绘制（VMD）') }}
             </button>
-            <button v-if="mode === 'he' && canOverlay" class="btn" @click="renderOverlay" :disabled="rendering">
-              {{ $t('空穴+电子叠加图（VMD）') }}
-            </button>
           </div>
 
-          <div class="ide-group">
-            <div class="rp-hint">{{ $t('Multiwfn: {0}', { 0: toolsStore.multiwfnPath || $t('未检测到') }) }}</div>
-            <div class="rp-hint">{{ $t('VMD: {0}', { 0: toolsStore.vmdPath || $t('未检测到') }) }}</div>
-            <div class="rp-hint">{{ $t('阴影效果需要 VMD 图形界面里手动渲染，命令行下用的是 Tachyon 全着色') }}</div>
+          <!-- 只在缺程序时提示（正常时不必占地方显示路径） -->
+          <div v-if="missingTools" class="ide-group">
+            <div class="rp-hint" style="color:var(--c-warning);">
+              {{ $t('没检测到 {0}：可在右上角「外部程序」里指定目录，或把程序所在目录加入系统环境变量 PATH', { 0: missingTools }) }}
+            </div>
           </div>
         </div>
       </aside>
@@ -298,6 +296,7 @@ import { useProgressStore } from '@/stores/progress'
 import { useRemoteStore } from '@/stores/remote'
 import { storeToRefs } from 'pinia'
 import { pairRows, spinLabel, stateLabel, ntoNote, heNote } from '@/utils/analysisPairs'
+import { cacheGet, cachedWavefn } from '@/utils/fileCache'
 import { pickDirectory } from '@/api/dialog'
 import { syncRemoteFolder } from '@/api/remoteSync'
 import scrollCache from '@/mixins/scrollCache'
@@ -351,24 +350,30 @@ export default {
       states: [],
       statesHint: '',
       chosenStates: [],
+      restoring: false,
       wavefnPath: '',
       wfBlocked: false,
       outDir: '',
       grid: 2,
-      iso: 0.02,
+      iso: 0.02,                // NTO 等值面
+      heIso: 0.0005,            // 空穴-电子分析的密度等值面（默认比 NTO 小）
+      heCfg: {},                // mls-plots.json 里的 hole_electron（材质/透明模式/等值面默认值）
+      _heCfgApplied: false,
+      _styleApplied: false,
       pairs: 1,
       exportFormat: 'mwfn',
-      exports: ['hole', 'electron', 'Sr', 'CDD'],
-      centroids: true,
-      style: 'art',
-      running: false,
-      rendering: false,
+      exports: ['hole', 'electron'],   // 默认只勾空穴分布 + 电子分布
+      style: 'art_noshadow',    // 渲染风格（默认无阴影，可在 mls-plots.json 里改）
       results: [],
       cubTexts: {},
       imageData: {},
+      imageFull: {},            // cube 路径 → 原图路径（界面上显示缩略图，点开大图时才读原图）
       overlayImages: [],
+      _busy: {},                // 文件路径 → { analyze, render }：每个文件各自的任务状态（可同时跑多个）
       previewVisible: false,
       previewSrc: '',
+      _previewKey: '',
+      thumbW: 900,              // 界面缩略图最大宽度（原图只在点开大图时才读）
       logLines: [],
       backendUrl: '',
       _fileCache: {},           // 每个输出文件的激发态/结果/图（切回来还在）
@@ -376,6 +381,13 @@ export default {
   },
   computed: {
     toolsStore() { return useExternalToolsStore() },
+    /** 缺失的外部程序（正常时为空串 → 不显示任何提示） */
+    missingTools() {
+      const miss = []
+      if (!this.toolsStore.multiwfnReady) miss.push('Multiwfn')
+      if (!this.toolsStore.vmdReady) miss.push('VMD')
+      return miss.join(' / ')
+    },
     exportOptions() {
       return [
         { id: 'hole', label: '空穴分布' },
@@ -387,26 +399,33 @@ export default {
       ]
     },
     sourceFile() { return this.files[this.selectedIndex] || null },
-    // 产物归档用的分子名（取输出文件名，例如 DFMP-PI）
+    /** 产物归档用的分子名（取输出文件名，例如 DFMP-PI） */
     moleculeStem() { return (this.sourceFile ? this.sourceFile.name : 'molecule').replace(/\.[^.]+$/, '') },
-    sourcePath() {
-      if (!this.sourceFile || !this.folder) return ''
-      const sep = this.folder.includes('\\') ? '\\' : '/'
-      return `${this.folder.replace(/[\\/]+$/, '')}${sep}${this.sourceFile.name}`
-    },
+    sourcePath() { return this.pathOf(this.selectedIndex) },
+    /** 当前文件自己的任务状态：别的文件在跑不影响这里的按钮与文字 */
+    busyHere() { return this._busy[this.sourcePath] || {} },
+    running() { return !!this.busyHere.analyze },
+    rendering() { return !!this.busyHere.render },
     outDirResolved() { return this.outDir || this.folder || '' },
     allCubes() {
       const out = []
       this.results.forEach((it) => (it.cubes || []).forEach((c) => out.push({ ...c, state: it.state })))
       return out
     },
-    canOverlay() {
-      return this.results.some((it) => {
-        const kinds = (it.cubes || []).map((c) => c.kind)
-        return kinds.includes('hole') && kinds.includes('electron')
-      })
-    },
     remotePreview() { return this.overlayImages },
+    /** 当前模式该用的等值面：NTO 用 iso，电子空穴用 heIso（默认 0.0005） */
+    activeIso() {
+      return this.mode === 'he' ? this.heIso : this.iso
+    },
+    /** 空穴-电子叠加参数：等值面用界面上的值，材质/透明模式来自根目录 mls-plots.json */
+    hePlot() {
+      const c = this.heCfg || {}
+      return {
+        iso: this.heIso,
+        material: c.material || 'Translucent',
+        trans_mode: c.trans_mode || 'trans_vmd'
+      }
+    },
     // ORCA 的 SOC 输出里 S 与 T 各自从 1 编号 → 序号会重复，界面要提醒
     dupStates() {
       const seen = {}
@@ -425,13 +444,19 @@ export default {
            { label: '图解电子激发的分类（sobereva.com/284）', url: 'http://sobereva.com/284' }]
     }
   },
-  activated() { this.toolsStore.detect() },
+  activated() {
+    this.toolsStore.detect()
+    this.loadPlotConfig()
+    useProgressStore().setActive(this.sourcePath)   // 回到本页：进度条只显示当前文件的任务
+  },
+  deactivated() { useProgressStore().setActive('') },
   watch: {
     // 两个页面共用这一个组件：万一路由切换时复用了实例，也要把结果清空（互不串台）
     mode() {
       this.results = []
       this.cubTexts = {}
       this.imageData = {}
+      this.imageFull = {}
       this.overlayImages = []
     }
   },
@@ -459,11 +484,52 @@ export default {
         .map((p) => ({ ...p, title: `${this.moleculeStem} ${label} — Hole + Electron（${this.$t('空穴 + 电子叠加图')}）` }))
     },
     onLog({ text, color }) { this.addLog(text, color) },
+    /** 读根目录 mls-plots.json 里的空穴-电子参数与默认渲染风格（只覆盖默认值，用户改过的不动） */
+    async loadPlotConfig() {
+      const { ok, data } = await this.api('/api/ext/defaults', 'GET')
+      if (!ok || !data) return
+      const he = data.hole_electron || (data.config || {}).hole_electron || null
+      if (he) {
+        this.heCfg = he
+        if (!this._heCfgApplied) {
+          const v = Number(he.iso)
+          if (isFinite(v) && v > 0) this.heIso = v
+          this._heCfgApplied = true
+        }
+      }
+      if (data.style && !this._styleApplied) {
+        this.style = data.style
+        this._styleApplied = true
+      }
+    },
     fmt(v) {
       if (v === undefined || v === null || Number.isNaN(v)) return '—'
       return Math.abs(v) >= 1000 ? String(v) : Number(v).toFixed(4).replace(/0+$/, '').replace(/\.$/, '')
     },
     baseName(p) { return String(p || '').split(/[\\/]/).pop() },
+    /** 第 idx 个文件的完整路径 */
+    pathOf(idx) {
+      const f = this.files[idx]
+      if (!f || !this.folder) return ''
+      const sep = this.folder.includes('\\') ? '\\' : '/'
+      return `${this.folder.replace(/[\\/]+$/, '')}${sep}${f.name}`
+    },
+    /** 左侧列表里标出该文件正在做什么（允许多个文件同时跑） */
+    fileBusy(f, idx) {
+      const b = this._busy[this.pathOf(idx)]
+      if (!b) return ''
+      const parts = []
+      if (b.analyze) parts.push(this.$t('分析中…'))
+      if (b.render) parts.push(this.$t('渲染中…'))
+      return parts.join(' / ')
+    },
+    /** 记下/清除某个文件的任务状态（每个文件各记各的） */
+    setBusy(path, kind, val) {
+      if (!path) return
+      const cur = { ...(this._busy[path] || {}) }
+      cur[kind] = !!val
+      this._busy = { ...this._busy, [path]: cur }
+    },
     metricLabel(m) {
       const zh = METRIC_LABELS[m.key]
       return zh ? this.$t(zh) : m.label
@@ -536,34 +602,48 @@ export default {
       this.states = []
       this.chosenStates = []
       this.results = []
+      useProgressStore().setActive('')
       this.addLog($tr('找到 {0} 个激发态输出文件', { 0: this.files.length }), '#87d2ff')
     },
     async selectFile(idx) {
       // 每个文件的激发态、分析结果与图各自缓存：切回来还能看到之前的结果（分析很耗时）
+      this.restoring = true
+      const gp = useProgressStore()
       this.cacheCurrent()
       this.selectedIndex = idx
+      const myIdx = idx
+      const gpKey = this.sourcePath + '|restore'
+      gp.setActive(this.sourcePath)          // 进度条从此只显示这个文件自己的任务
+      gp.start($tr('正在恢复先前解析的内容……'), gpKey)
       this.results = []
       this.cubTexts = {}
       this.imageData = {}
+      this.imageFull = {}
       this.overlayImages = []
       this.states = []
       this.statesHint = ''
       this.chosenStates = []
+      // 波函数选择必须跟着文件换：缓存里有就用该文件自己的，没有就清空让组件重新自动查找
+      const cached = cacheGet(this._fileCache, this.sourcePath)
+      this.wavefnPath = cachedWavefn(this._fileCache, this.sourcePath)
+      // 等这一轮渲染把新的 source-path / v-model 传给 WavefnSource 之后再让它预检
       await this.$nextTick()
       await this.$refs.wf.reload()
-      const cached = this._fileCache[this.sourcePath]
       if (cached && cached.results && cached.results.length) {
         this.restoreCache(cached)
         this.addLog($tr('恢复 {0} 之前的分析结果', { 0: cached.states.length }), '#87d2ff')
       }
       const { ok, data } = await this.api('/api/analysis/states', 'GET', null,
         { path: this.sourcePath, wavefn: this.wavefnPath || '' })
+      if (this.selectedIndex === myIdx) this.restoring = false
+      gp.hide(gpKey)                          // 只结束"恢复"这一个任务（别的文件/别的任务照旧显示）
+      if (this.selectedIndex !== myIdx) return   // 期间用户又切走了，结果留给那次切换处理
       if (!ok) { this.addLog($tr('读取激发态失败: {0}', { 0: data.detail }), '#ff6b6b'); return }
       if (!this.states.length) this.states = data.states || []
       this.statesHint = data.hint || ''
       this.addLog($tr('激发态: {0} 个（{1}）', { 0: this.states.length, 1: data.kind || '—' }), '#87d2ff')
     },
-    /** 缓存当前文件的激发态/勾选/结果/图 */
+    /** 缓存当前文件的激发态/勾选/结果/图/波函数选择 */
     cacheCurrent() {
       const key = this.sourcePath
       if (!key) return
@@ -574,7 +654,9 @@ export default {
         results: this.results,
         cubTexts: this.cubTexts,
         imageData: this.imageData,
-        overlayImages: this.overlayImages
+        imageFull: this.imageFull,
+        overlayImages: this.overlayImages,
+        wavefnPath: this.wavefnPath
       }
     },
     restoreCache(c) {
@@ -584,6 +666,7 @@ export default {
       this.results = c.results || []
       this.cubTexts = c.cubTexts || {}
       this.imageData = c.imageData || {}
+      this.imageFull = c.imageFull || {}
       this.overlayImages = c.overlayImages || []
     },
     pickStates(what) {
@@ -614,7 +697,7 @@ export default {
       const citation = useMultiwfnCitationStore()
       await citation.require(this.mode === 'he' ? 'hole-electron' : 'nto')
 
-      this.running = true
+      this.setBusy(this.sourcePath, 'analyze', true)
       const url = this.mode === 'nto' ? '/api/analysis/nto' : '/api/analysis/hole-electron'
       const payload = {
         source: this.sourcePath,
@@ -634,39 +717,62 @@ export default {
       // 逐态调用：既能显示最下方的进度条，也能边算边看到结果
       const gp = useProgressStore()
       const states = payload.states
-      this.results = []
+      // 解析很耗时，期间用户可能切到别的文件：结果一律按开始时的文件（runKey）归属，
+      // 只有 runKey 还是当前文件才直接显示，否则写进那个文件自己的缓存，绝不串到别的分子上
+      const runKey = this.sourcePath
+      const gpKey = runKey + '|analyze'
+      const labels = states.map((s) => this.stateLabel({ state: s, order: s }))
+      const acc = []
       let outDir = ''
       for (let i = 0; i < states.length; i++) {
         gp.step(i, states.length, $tr('Multiwfn 分析 {0}（{1}/{2}）', {
-          0: this.stateLabel({ state: states[i], order: states[i] }),
-          1: i + 1, 2: states.length
-        }))
-        this.addLog($tr('调用 Multiwfn 分析 {0}（{1}/{2}）…', { 0: states[i], 1: i + 1, 2: states.length }), '#87d2ff')
+          0: labels[i], 1: i + 1, 2: states.length
+        }), gpKey)
+        this.addLog($tr('调用 Multiwfn 分析 {0}（{1}/{2}）…', { 0: labels[i], 1: i + 1, 2: states.length }), '#87d2ff')
         const one = { ...payload, states: [states[i]] }
         const { ok, data } = await this.api(url, 'POST', one)
         if (!ok) {
           this.addLog($tr('分析失败: {0}', { 0: data.detail }), '#ff6b6b')
           continue
         }
-        this.results = this.results.concat(data.items || [])
+        acc.push(...(data.items || []))
+        this.setRunResults(runKey, acc)
         outDir = data.out_dir || outDir
         if (data.log) String(data.log).split('\n').forEach((l) => this.addLog(l, '#9aa3ad'))
         if (data.hint) this.addLog(data.hint, '#ff6b6b')
       }
-      this.running = false
-      const n = this.allCubes.length
-      this.addLog($tr('分析完成：{0} 个激发态，{1} 个 cube → {2}', { 0: this.results.length, 1: n, 2: outDir }),
+      this.setBusy(runKey, 'analyze', false)
+      const cubes = []
+      acc.forEach((it) => (it.cubes || []).forEach((c) => cubes.push({ ...c, state: it.state })))
+      this.addLog($tr('分析完成：{0} 个激发态，{1} 个 cube → {2}', { 0: acc.length, 1: cubes.length, 2: outDir }),
         '#7cfc00')
       let k = 0
-      const cubes = this.allCubes.slice(0, 8)
-      for (const c of cubes) {
+      const pick = cubes.slice(0, 8)
+      const texts = {}
+      for (const c of pick) {
         const r = await this.api('/api/ext/read-cub', 'POST', { path: c.cub })
-        if (r.ok) this.cubTexts[c.cub] = r.data.text
+        if (r.ok) texts[c.cub] = r.data.text
         k++
-        gp.step(k, cubes.length || 1, $tr('读取 cube {0}/{1}', { 0: k, 1: cubes.length }))
+        gp.step(k, pick.length || 1, $tr('读取 cube {0}/{1}', { 0: k, 1: pick.length }), gpKey)
       }
-      gp.finish($tr('分析完成：{0} 个激发态', { 0: this.results.length }))
-      this.cacheCurrent()
+      this.setRunCubTexts(runKey, texts)
+      gp.finish($tr('分析完成：{0} 个激发态', { 0: acc.length }), gpKey)
+      // 始终停在同一个文件才写回当前状态；已经切走了就别覆盖别人（结果早已存进 runKey 的缓存）
+      if (!runKey || runKey === this.sourcePath) this.cacheCurrent()
+    },
+    /** 分析结果写回：还停在这个文件就直接显示，已经切走了就存进那个文件自己的缓存 */
+    setRunResults(runKey, items) {
+      if (!runKey || runKey === this.sourcePath) { this.results = items.slice(); return }
+      const c = cacheGet(this._fileCache, runKey) || {}
+      c.results = items.slice()
+      this._fileCache[runKey] = c
+    },
+    /** cube 文本同理：按解析开始时的文件归属 */
+    setRunCubTexts(runKey, texts) {
+      if (!runKey || runKey === this.sourcePath) { this.cubTexts = { ...this.cubTexts, ...texts }; return }
+      const c = cacheGet(this._fileCache, runKey) || {}
+      c.cubTexts = { ...(c.cubTexts || {}), ...texts }
+      this._fileCache[runKey] = c
     },
 
     // ===== 渲染 =====
@@ -675,49 +781,91 @@ export default {
         this.addLog($tr('没检测到 VMD：请先在右上角「外部程序」里指定目录'), '#ffa500')
         return
       }
-      this.rendering = true
-      this.addLog($tr('调用 VMD 渲染 {0} 张图…', { 0: this.allCubes.length }), '#87d2ff')
+      // 渲染期间可能切文件：cube 列表与归属文件先固定下来，结果按 cacheKey 写回
+      const cacheKey = this.sourcePath
+      const gpKey = cacheKey + '|render'
+      const gp = useProgressStore()
+      this.setBusy(cacheKey, 'render', true)
+      gp.start($tr('VMD 渲染 {0} 张图…', { 0: this.allCubes.length }), gpKey)
+      const cubes = this.allCubes.slice()
+      const results = this.results.slice()
+      const states = this.states.slice()
+      this.addLog($tr('调用 VMD 渲染 {0} 张图…', { 0: cubes.length }), '#87d2ff')
       const { ok, data } = await this.api('/api/ext/render', 'POST', {
         out_dir: this.outDirResolved,
-        folder_name: this.moleculeStem,
-        items: this.allCubes.map((c, i) => ({
+        folder_name: this.moleculeStem + '-NTOs',
+        items: cubes.map((c, i) => ({
           orbital: i,
           cub: c.cub,
-          note: this.mode === 'nto' ? this.ntoNote(c, c)
-                                    : this.heNote(this.results.find((r) => r.state === c.state) || { state: c.state })
+          note: this.mode === 'nto' ? ntoNote(c, c, states)
+                                    : heNote(results.find((r) => r.state === c.state) || { state: c.state }, states)
         })),
         vmd_dir: this.toolsStore.vmdDir,
         iso: this.iso,
         style: this.style
       })
-      this.rendering = false
-      if (!ok) { this.addLog($tr('VMD 渲染失败: {0}', { 0: data.detail }), '#ff6b6b'); return }
+      this.setBusy(cacheKey, 'render', false)
+      if (!ok) {
+        gp.hide(gpKey)
+        this.addLog($tr('VMD 渲染失败: {0}', { 0: data.detail }), '#ff6b6b')
+        return
+      }
       if (data.log) String(data.log).split('\n').forEach((l) => this.addLog(l, '#9aa3ad'))
       const done = (data.items || []).filter((i) => i.ok)
+      const collected = {}
+      const full = {}
+      let n = 0
       for (const it of done) {
-        const c = this.allCubes[it.orbital]
+        const c = cubes[it.orbital]
         if (!c) continue
-        const r = await this.api('/api/ext/read-image', 'POST', { path: it.image })
-        if (r.ok) this.imageData[c.cub] = `data:${r.data.mime};base64,${r.data.base64}`
+        const r = await this.api('/api/ext/read-image', 'POST', { path: it.image, max_w: this.thumbW })
+        if (r.ok) {
+          collected[c.cub] = `data:${r.data.mime};base64,${r.data.base64}`
+          full[c.cub] = it.image
+        }
+        n++
+        gp.step(n, done.length || 1, $tr('读取渲染图 {0}/{1}', { 0: n, 1: done.length }), gpKey)
       }
+      this.applyRenderResult(cacheKey, collected, [], full)
+      gp.finish($tr('已渲染 {0} 张图', { 0: done.length }), gpKey)
       this.addLog($tr('已渲染 {0} 张图 → {1}', { 0: done.length, 1: data.out_dir }), '#7cfc00')
     },
-    /** 空穴-电子分析：每张图都走 /api/analysis/overlay —— 等值面半透明、并把电荷中心点画出来 */
+    /** 空穴-电子分析：一次把「单图 + 叠加图」都画出来（只有 Chole/Cele 等值面透明，其余不透明） */
     async renderHeFigures() {
       if (!this.toolsStore.vmdReady) {
         this.addLog($tr('没检测到 VMD：请先在右上角「外部程序」里指定目录'), '#ffa500')
         return
       }
+      const cacheKey = this.sourcePath
+      const gpKey = cacheKey + '|render'
       const gp = useProgressStore()
-      this.rendering = true
+      // 渲染很慢，期间可能切文件：结果、分子名、输出目录先固定下来，图按 cacheKey 写回
+      const resultsSnap = this.results.slice()
+      const statesSnap = this.states.slice()
+      const stem = this.moleculeStem
+      const outDir = this.outDirResolved
+      const he = this.hePlot
+      this.setBusy(cacheKey, 'render', true)
+      gp.start($tr('VMD 渲染 {0} 张图…', { 0: resultsSnap.length }), gpKey)
+      const collected = {}          // cube 路径 → dataURL（最后按 cacheKey 归属写回，切文件也不会串）
+      const full = {}               // cube 路径 → 原图路径
+      const overlays = []
+      // 只有平滑化的 Chole / Cele（以及它们的叠加图）用半透明等值面：质心球要能看见；
+      // 其余图（hole/electron/Sr/CDD/跃迁密度/Hole+Electron）保持不透明，层次更清楚
+      const transOf = (tag) => tag === 'Chole' || tag === 'Cele' || tag === 'Chole+Cele'
+      const figOf = (label, cub1, cub2, spheres, tag, text) => ({
+        label, cub1, cub2, spheres, note: text,
+        transparent: transOf(tag),
+        material: transOf(tag) ? he.material : 'Glossy'
+      })
       const kinds = [
-        ['hole', 'hole', 'pink'], ['electron', 'electron', 'cyan'],
-        ['Chole', 'Chole', 'pink'], ['Cele', 'Cele', 'cyan'],
-        ['Sr', 'Sr', 'white'], ['CDD', 'CDD', 'white']
+        ['hole', 'hole'], ['electron', 'electron'],
+        ['Chole', 'Chole'], ['Cele', 'Cele'],
+        ['Sr', 'Sr'], ['CDD', 'CDD'], ['transition', 'transition']
       ]
       let made = 0
-      for (let i = 0; i < this.results.length; i++) {
-        const it = this.results[i]
+      for (let i = 0; i < resultsSnap.length; i++) {
+        const it = resultsSnap[i]
         const by = {}
         ;(it.cubes || []).forEach((c) => { by[c.kind] = c.cub })
         const m = {}
@@ -725,91 +873,97 @@ export default {
         const ch = (m.centroid_hole || {}).vec
         const ce = (m.centroid_ele || {}).vec
         const figs = []
-        kinds.forEach(([kind, tag, color]) => {
+        const lab = stateLabel(it, statesSnap)
+        const note = heNote(it, statesSnap)
+        kinds.forEach(([kind, tag]) => {
           if (!by[kind]) return
-          // 空穴类图只标空穴质心，电子类只标电子质心
+          // 电荷中心只标在 Chole / Cele 上（hole/electron 单图不加）
           const spheres = []
-          if (ch && (kind === 'hole' || kind === 'Chole')) spheres.push([...ch, 'purple'])
-          if (ce && (kind === 'electron' || kind === 'Cele')) spheres.push([...ce, 'orange'])
-          figs.push({
-            label: `${this.moleculeStem}-${this.stateLabel(it)}-${tag}`,
-            cub1: by[kind], spheres,
-            note: `${this.heNote(it)}  ${tag}`
-          })
+          if (ch && kind === 'Chole') spheres.push([...ch, 'purple'])
+          if (ce && kind === 'Cele') spheres.push([...ce, 'orange'])
+          figs.push(figOf(`${stem}-${lab}-${tag}`, by[kind], '', spheres, tag, `${note}  ${tag}`))
         })
+        // 叠加图：Hole+Electron（不透明）+ Chole+Cele（透明，标两个电荷中心）
+        if (by.hole && by.electron) {
+          figs.push(figOf(`${stem}-${lab}-Hole+Electron`, by.hole, by.electron, [],
+                          'Hole+Electron', `${note}  Hole+Electron`))
+        }
+        if (by.Chole && by.Cele) {
+          const spheres = []
+          if (ch) spheres.push([...ch, 'purple'])
+          if (ce) spheres.push([...ce, 'orange'])
+          figs.push(figOf(`${stem}-${lab}-Chole+Cele`, by.Chole, by.Cele, spheres,
+                          'Chole+Cele', `${note}  Chole+Cele`))
+        }
         if (figs.length) {
-          gp.step(i, this.results.length, $tr('VMD 渲染 {0}（{1}/{2}）', { 0: this.stateLabel(it), 1: i + 1, 2: this.results.length }))
+          gp.step(i, resultsSnap.length,
+                  $tr('VMD 渲染 {0}（{1}/{2}）', { 0: lab, 1: i + 1, 2: resultsSnap.length }), gpKey)
           const { ok, data } = await this.api('/api/analysis/overlay', 'POST', {
-            out_dir: this.outDirResolved, folder_name: this.moleculeStem,
-            pairs: figs, iso: this.iso, style: this.style, transparent: true,
+            out_dir: outDir, folder_name: stem + '-HoleElectron',
+            pairs: figs, iso: he.iso, style: this.style,
+            material: he.material, trans_mode: he.trans_mode,   // 每张图自己带 透明/材质
             vmd_dir: this.toolsStore.vmdDir
           })
           if (!ok) { this.addLog($tr('渲染失败: {0}', { 0: data.detail }), '#ff6b6b'); continue }
           if (data.log) String(data.log).split('\n').forEach((l) => this.addLog(l, '#9aa3ad'))
           for (const r2 of (data.items || []).filter((x) => x.ok)) {
-            const cub = by[r2.label.split('-').pop()]
-            const rr = await this.api('/api/ext/read-image', 'POST', { path: r2.image })
-            if (rr && rr.ok && cub) this.imageData[cub] = `data:${rr.data.mime};base64,${rr.data.base64}`
+            const tag = String(r2.label || '').split('-').pop()
+            const cub = by[tag]
+            const rr = await this.api('/api/ext/read-image', 'POST', { path: r2.image, max_w: this.thumbW })
+            const src = rr && rr.ok ? `data:${rr.data.mime};base64,${rr.data.base64}` : ''
+            if (cub && src) {
+              collected[cub] = src
+              full[cub] = r2.image                      // 原图路径：点开大图时才读
+            }
+            // 叠加图单独列出（没有对应的单个 cube）
+            if ((tag === 'Chole+Cele' || tag === 'Hole+Electron') && src) {
+              overlays.push({ name: r2.name, path: r2.image, src })
+            }
             made++
           }
         }
       }
-      this.rendering = false
-      gp.finish($tr('已渲染 {0} 张图', { 0: made }))
-      this.addLog($tr('已渲染 {0} 张图 → {1}', { 0: made, 1: this.outDirResolved }), '#7cfc00')
-      this.cacheCurrent()
+      this.setBusy(cacheKey, 'render', false)
+      gp.finish($tr('已渲染 {0} 张图', { 0: made }), gpKey)
+      this.addLog($tr('已渲染 {0} 张图 → {1}', { 0: made, 1: outDir }), '#7cfc00')
+      this.applyRenderResult(cacheKey, collected, overlays, full)
     },
-    async renderOverlay() {
-      if (!this.toolsStore.vmdReady) {
-        this.addLog($tr('没检测到 VMD：请先在右上角「外部程序」里指定目录'), '#ffa500')
+    /** 渲染结果写回：按开始绘制时的文件归属写（中途切文件也不会把图串到别的分子上） */
+    applyRenderResult(cacheKey, collected, overlays, full = {}) {
+      if (cacheKey && cacheKey !== this.sourcePath) {
+        const c = cacheGet(this._fileCache, cacheKey) || {}
+        c.imageData = { ...(c.imageData || {}), ...collected }
+        c.imageFull = { ...(c.imageFull || {}), ...full }
+        c.overlayImages = (c.overlayImages || [])
+          .filter((p) => !overlays.some((o) => o.name === p.name))
+          .concat(overlays)
+        this._fileCache[cacheKey] = c
+        this.addLog($tr('绘制完成（结果已存到该文件自己的缓存里）'), '#7cfc00')
         return
       }
-      const pairs = []
-      this.results.forEach((it) => {
-        const by = {}
-        ;(it.cubes || []).forEach((c) => { by[c.kind] = c.cub })
-        const m = {}
-        ;(it.metrics || []).forEach((r) => { m[r.key] = r })
-        if (by.hole && by.electron) {
-          pairs.push({
-            label: `${this.moleculeStem}-${this.stateLabel(it)}-hole+electron`,
-            cub1: by.hole, cub2: by.electron,
-            chole: (m.centroid_hole || {}).vec || null,
-            cele: (m.centroid_ele || {}).vec || null,
-            note: `${this.heNote(it)}  Hole+Electron`
-          })
-        }
-      })
-      if (!pairs.length) return
-      this.rendering = true
-      this.addLog($tr('调用 VMD 渲染叠加图…'), '#87d2ff')
-      const { ok, data } = await this.api('/api/analysis/overlay', 'POST', {
-        out_dir: this.outDirResolved, folder_name: this.moleculeStem,
-        pairs, iso: Math.min(this.iso, 0.004),
-        style: this.style, centroids: this.centroids,
-        vmd_dir: this.toolsStore.vmdDir
-      })
-      this.rendering = false
-      if (!ok) { this.addLog($tr('叠加图渲染失败: {0}', { 0: data.detail }), '#ff6b6b'); return }
-      if (data.log) String(data.log).split('\n').forEach((l) => this.addLog(l, '#9aa3ad'))
-      const out = []
-      for (const it of (data.items || []).filter((i) => i.ok)) {
-        const r = await this.api('/api/ext/read-image', 'POST', { path: it.image })
-        out.push({ name: it.name, path: it.image, src: r.ok ? `data:${r.data.mime};base64,${r.data.base64}` : '' })
+      Object.assign(this.imageData, collected)
+      Object.assign(this.imageFull, full)
+      const merged = this.overlayImages.filter((p) => !overlays.some((o) => o.name === p.name)).concat(overlays)
+      this.overlayImages = merged
+      this.cacheCurrent()
+    },
+    /** 点开大图：先用界面上的缩略图立即显示，再把原图读进来替换（原图只在需要时才传） */
+    async openFull(key, fullPath, thumbSrc) {
+      if (!thumbSrc && !fullPath) return
+      this.previewSrc = thumbSrc || ''
+      this._previewKey = key
+      this.previewVisible = true
+      if (!fullPath) return
+      const r = await this.api('/api/ext/read-image', 'POST', { path: fullPath })
+      if (r.ok && this.previewVisible && this._previewKey === key) {
+        this.previewSrc = `data:${r.data.mime};base64,${r.data.base64}`
       }
-      this.overlayImages = out
-      this.addLog($tr('已渲染 {0} 张叠加图 → {1}', { 0: out.length, 1: data.out_dir }), '#7cfc00')
     },
     openPreview(c) {
-      const src = this.imageData[c.cub]
-      if (!src) return
-      this.previewSrc = src
-      this.previewVisible = true
+      this.openFull(c.cub, this.imageFull[c.cub] || '', this.imageData[c.cub])
     },
     openImage(p) {
-      if (!p.src) return
-      this.previewSrc = p.src
-      this.previewVisible = true
+      this.openFull(p.name || p.path, p.path || '', p.src)
     }
   }
 }
@@ -828,6 +982,11 @@ export default {
 .spin-s { color: #cf3b34 !important; }
 .spin-t { color: #2b6fd4 !important; }
 .ana-err { font-size: 12px; color: var(--c-danger); }
+/* 左侧列表里"该文件正在分析/绘制"的小标记（允许多个文件同时跑） */
+.ana-busy {
+  margin-left: 6px; padding: 0 4px; font-size: 11px;
+  color: var(--c-accent); border: 1px solid var(--c-border-soft);
+}
 .ana-sub { font-size: 12px; color: var(--c-text-2); margin: 4px 0; word-break: break-all; }
 .ana-table { width: 100%; border-collapse: collapse; font-size: 12.5px; margin: 4px 0; }
 .ana-table th { text-align: left; border-bottom: 1px solid var(--c-border); padding: 3px 6px; }

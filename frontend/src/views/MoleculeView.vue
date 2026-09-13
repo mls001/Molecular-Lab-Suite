@@ -339,6 +339,7 @@ import MolCanvas2D from '@/components/MolCanvas2D.vue'
 import MolIcon from '@/components/MolIcon.vue'
 import MolMenuPanel from '@/components/MolMenuPanel.vue'
 import { pickDirectory } from '@/api/dialog'
+import { backendBase, fetchWithRetry } from '@/api/backend'
 import { useMoleculeStore } from '@/stores/molecule'
 import { currentTheme, applyTheme } from '@/theme/theme'
 import { elementForKey, freeBondPosition, thumbnailSvg } from '@/utils/molDraw'
@@ -623,9 +624,10 @@ export default {
     }
   },
   async mounted() {
-    this.backendUrl = await this.getBackendUrl()
+    this.backendUrl = await backendBase()
     try {
-      const r = await fetch(`${this.backendUrl}/api/mol/presets`)
+      // 启动瞬间后端可能还没起来：这里会自动重试，不再弹 "Failed to fetch"
+      const r = await fetchWithRetry(`${this.backendUrl}/api/mol/presets`)
       const d = await r.json()
       this.molsDir = d.mols_dir || ''
       this.rings = d.rings || []
@@ -635,7 +637,7 @@ export default {
     if (!this.molsDir) {
       // 兜底：直接问后端 Mols 目录，保证分子页默认就在 Mols 路径
       try {
-        const r2 = await fetch(`${this.backendUrl}/api/mol/mols`)
+        const r2 = await fetchWithRetry(`${this.backendUrl}/api/mol/mols`)
         const d2 = await r2.json()
         this.molsDir = d2.dir || ''
       } catch (e) { /* ignore */ }
@@ -1571,8 +1573,29 @@ export default {
       await this.refreshList()
       this.addLog($tr('已保存 {0}', { 0: data.path }), '#7cfc00')
     },
-    gotoInputGen() {
-      this.syncStore()
+    /** 把当前分子送到「生成输入」页：不要求先保存 .mls，画布/3D 模型直接带过去 */
+    async gotoInputGen() {
+      if (!this.mol.n_atoms) return
+      const use3d = !!(this.saveFrom3d && this.mol3d && (this.mol3d.atoms || []).length)
+      const src = use3d
+        ? { molblock: this.mol3d.molblock, atoms: this.mol3d.atoms }
+        : { molblock: this.mol.molblock, atoms: this.mol.atoms }
+      const before = await this.ensureExplicitH(src)      // 输入文件要有显式氢（跟随"保存时加氢"设置）
+      const molblock = before.molblock || src.molblock
+      const atoms = before.atoms || src.atoms || []
+      if (!molblock) {
+        this.addLog($tr('当前分子还没有可用的结构，请先在画布上绘制或打开一个分子'), '#ffa500')
+        return
+      }
+      useMoleculeStore().put({
+        molblock,
+        name: this.mol.name || this.saveName || (this.activeName || '').replace(/\.[^.]+$/, '') || 'molecule',
+        atoms,
+        charge: this.mol.charge || 0,
+        mult: this.mol.mult || 1,
+        source: this.activeName
+      })
+      this.addLog($tr('已把当前分子（{0} 个原子）送到「生成输入」页', { 0: atoms.length }), '#87d2ff')
       this.$router.push('/input-gen')
     }
   }
